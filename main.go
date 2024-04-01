@@ -157,7 +157,7 @@ func (a *aggregate) addMeasurement(temp float64) {
 	a.count += 1
 	a.sum += temp
 	a.minTemp = min(temp, a.minTemp)
-	a.maxTemp = min(temp, a.maxTemp)
+	a.maxTemp = max(temp, a.maxTemp)
 }
 
 func (a *aggregate) calcMetrics() (minTemp float64, maxTemp float64, avg float64) {
@@ -178,7 +178,7 @@ func process(filePath string) {
 	scanner := bufio.NewScanner(file)
 
 	// map to group measurements by location
-	grouped := make(map[string]aggregate)
+	grouped := make(map[string]*aggregate)
 
 	// iterate over the input file, group measurements by location
 	for i := 1; scanner.Scan(); i++ {
@@ -189,7 +189,7 @@ func process(filePath string) {
 		if agg, ok := grouped[location]; ok {
 			agg.addMeasurement(temperature)
 		} else {
-			agg = aggregate{sum: temperature, count: 1, minTemp: temperature, maxTemp: temperature}
+			agg = &aggregate{sum: temperature, count: 1, minTemp: temperature, maxTemp: temperature}
 			grouped[location] = agg
 		}
 	}
@@ -219,13 +219,13 @@ func process(filePath string) {
 
 		agg := grouped[l]
 
-		maxTemp, minTemp, avgTemp := agg.calcMetrics()
+		minTemp, maxTemp, avgTemp := agg.calcMetrics()
 
 		minTempStr := strconv.FormatFloat(minTemp, 'f', 1, 64)
 		maxTempStr := strconv.FormatFloat(maxTemp, 'f', 1, 64)
 		avgTempStr := strconv.FormatFloat(avgTemp, 'f', 1, 64)
 
-		row := []string{l, minTempStr, avgTempStr, maxTempStr}
+		row := []string{l, minTempStr, maxTempStr, avgTempStr}
 		csvWriter.Write(row)
 	}
 
