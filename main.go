@@ -10,13 +10,13 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"runtime/trace"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
-var version string = "v0"
+
+var version string = "v2"
 
 var dir = flag.String("dir", "", "sudirectory for the profile files in the `profiles` folder")
 var postfix = flag.String("psf", "", "postfix for the profile files")
@@ -146,73 +146,63 @@ type measurement struct {
 	temperature float64
 }
 
-type metrics struct {
+type aggregate struct {
+	sum     float64
+	count   int
 	minTemp float64
 	maxTemp float64
-	avgTemp float64
+}
+
+func (a *aggregate) addMeasurement(temp float64) {
+	a.count += 1
+	a.sum += temp
+	a.minTemp = min(temp, a.minTemp)
+	a.maxTemp = min(temp, a.maxTemp)
+}
+
+func (a *aggregate) calcMetrics() (minTemp float64, maxTemp float64, avg float64) {
+	avg = a.sum / float64(a.count)
+	return a.minTemp, a.maxTemp, avg
 }
 
 // orchestrates the entire process from reading the input till producing the output
 func process(filePath string) {
-	rawData, err := loadData(filePath)
+
+	// open the input file
+	file, err := os.Open(filePath)
 	if err != nil {
-		fmt.Println("Could not open file")
-		os.Exit(1)
+		return
 	}
+	defer file.Close()
 
-	data := processData(rawData)
+	scanner := bufio.NewScanner(file)
 
-	grouped := make(map[string][]float64)
+	// map to group measurements by location
+	grouped := make(map[string]aggregate)
 
-	// sorting each measurement by its location
-	for _, m := range data {
+	// iterate over the input file, group measurements by location
+	for i := 1; scanner.Scan(); i++ {
+		line := scanner.Text()
 
-		v, ok := grouped[m.location]
+		location, temperature := processData(line)
 
-		if ok {
-			grouped[m.location] = append(v, m.temperature)
-
+		if agg, ok := grouped[location]; ok {
+			agg.addMeasurement(temperature)
 		} else {
-			v := make([]float64, 0, 100)
-			grouped[m.location] = append(v, m.temperature)
+			agg = aggregate{sum: temperature, count: 1, minTemp: temperature, maxTemp: temperature}
+			grouped[location] = agg
 		}
-
 	}
 
-	// calculating the metrics for each location
-	results := make(map[string]metrics)
-	for k, v := range grouped {
+	// create a sorted list of the locations
+	locations := make([]string, 0, len(grouped))
 
-		var sumTemp float64
-		for _, m := range v {
-			sumTemp += m
-		}
-
-		maxTemp := slices.Max(v)
-		minTemp := slices.Min(v)
-		avgTemp := sumTemp / float64(len(v))
-
-		results[k] = metrics{minTemp, maxTemp, avgTemp}
+	for l := range grouped {
+		locations = append(locations, l)
 	}
-
-	// test sort
-	// for k, v := range grouped {
-	// 	if len(v) >= 2 {
-	// 		fmt.Printf("%s, metrics: %v\n", k, results[k])
-	// 	}
-	// }
-
-	// sorting the output order
-	locations := make([]string, 0, len(results))
-
-	for k := range results {
-		locations = append(locations, k)
-	}
-
 	sort.Strings(locations)
 
-	// creating output
-
+	// open file for output
 	csvFile, err := os.Create("output/result.csv")
 	if err != nil {
 		fmt.Println(err)
@@ -222,50 +212,55 @@ func process(filePath string) {
 
 	header := []string{"loaction", "min", "max", "avg"}
 	csvWriter := csv.NewWriter(csvFile)
-
 	csvWriter.Write(header)
 
+	// calculate the metrics for each location, write it to output
 	for _, l := range locations {
-		currMetrics := results[l]
-		minTempStr := strconv.FormatFloat(currMetrics.minTemp, 'f', 1, 64)
-		maxTempStr := strconv.FormatFloat(currMetrics.maxTemp, 'f', 1, 64)
-		avgTempStr := strconv.FormatFloat(currMetrics.avgTemp, 'f', 1, 64)
+
+		agg := grouped[l]
+
+		maxTemp, minTemp, avgTemp := agg.calcMetrics()
+
+		minTempStr := strconv.FormatFloat(minTemp, 'f', 1, 64)
+		maxTempStr := strconv.FormatFloat(maxTemp, 'f', 1, 64)
+		avgTempStr := strconv.FormatFloat(avgTemp, 'f', 1, 64)
 
 		row := []string{l, minTempStr, avgTempStr, maxTempStr}
 		csvWriter.Write(row)
 	}
+
 	csvWriter.Flush()
 
 }
 
-func processData(rawData []string) []measurement {
-	var processedData []measurement
-	for i, line := range rawData {
-		parts := strings.Split(line, ";")
-		temperature, err := strconv.ParseFloat(parts[1], 64)
-		if err != nil {
-			fmt.Printf("Error parsing line %d: %s could not be parsed\n", i, parts[1])
-		}
-		processedData = append(processedData, measurement{location: parts[0], temperature: temperature})
-	}
+func processData(line string) (location string, temperature float64) {
 
-	return processedData
-}
+	parts := strings.Split(line, ";")
 
-// loads the input file data row by row into a slice of string values
-func loadData(filePath string) (data []string, err error) {
-	file, err := os.Open(filePath)
+	location = parts[0]
+	temperature, err := strconv.ParseFloat(parts[1], 64)
 
 	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		data = append(data, scanner.Text())
-
+		fmt.Printf("%s could not be parsed\n", parts[1])
 	}
 
-	return data, nil
+	return location, temperature
 }
+
+// // loads the input file data row by row into a slice of string values
+// func loadData(filePath string) (data []string, err error) {
+// 	file, err := os.Open(filePath)
+
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	defer file.Close()
+// 	scanner := bufio.NewScanner(file)
+
+// 	for scanner.Scan() {
+// 		data = append(data, scanner.Text())
+
+// 	}
+
+// 	return data, nil
+// }
