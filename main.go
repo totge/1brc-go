@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var version string = "v2"
+var version string = "v2-async-buffer"
 
 var dir = flag.String("dir", "", "sudirectory for the profile files in the `profiles` folder")
 var postfix = flag.String("psf", "", "postfix for the profile files")
@@ -165,10 +165,8 @@ func (a *aggregate) calcMetrics() (minTemp float64, maxTemp float64, avg float64
 	return a.minTemp, a.maxTemp, avg
 }
 
-// orchestrates the entire process from reading the input till producing the output
-func process(filePath string) {
-
-	// open the input file
+// producer function to read the file asyncronously
+func produceLine(filePath string, lineQueue chan string) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return
@@ -177,12 +175,24 @@ func process(filePath string) {
 
 	scanner := bufio.NewScanner(file)
 
+	for scanner.Scan() {
+		lineQueue <- scanner.Text()
+	}
+	close(lineQueue)
+}
+
+// orchestrates the entire process from reading the input till producing the output
+func process(filePath string) {
+
+	lineQueue := make(chan string, 20000)
+
+	go produceLine(filePath, lineQueue)
+
 	// map to group measurements by location
 	grouped := make(map[string]*aggregate)
 
-	// iterate over the input file, group measurements by location
-	for i := 1; scanner.Scan(); i++ {
-		line := scanner.Text()
+	// iterate over the lines recieved through the channel
+	for line := range lineQueue {
 
 		location, temperature := processData(line)
 
@@ -246,21 +256,3 @@ func processData(line string) (location string, temperature float64) {
 
 	return location, temperature
 }
-
-// // loads the input file data row by row into a slice of string values
-// func loadData(filePath string) (data []string, err error) {
-// 	file, err := os.Open(filePath)
-
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer file.Close()
-// 	scanner := bufio.NewScanner(file)
-
-// 	for scanner.Scan() {
-// 		data = append(data, scanner.Text())
-
-// 	}
-
-// 	return data, nil
-// }
