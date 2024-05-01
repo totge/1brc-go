@@ -195,14 +195,6 @@ func process(filePath string) {
 		results[k] = metrics{minTemp, maxTemp, avgTemp}
 	}
 
-	// test sort
-	// for k, v := range grouped {
-	// 	if len(v) >= 2 {
-	// 		fmt.Printf("%s, metrics: %v\n", k, results[k])
-	// 	}
-	// }
-
-	// sorting the output order
 	locations := make([]string, 0, len(results))
 
 	for k := range results {
