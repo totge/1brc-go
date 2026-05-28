@@ -63,5 +63,5 @@ func Measure(name string, enableProfile bool, fn func()) {
 }
 
 func Runner(filePath string) {
-	readChunked(filePath)
+	readChunked(filePath, 2*1024*1024)
 }

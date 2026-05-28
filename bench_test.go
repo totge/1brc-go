@@ -43,3 +43,20 @@ func TestBufioSequential(t *testing.T) {
 		readBufioScanner(resolveInput(*input))
 	})
 }
+func TestReadSequeltial(t *testing.T) {
+	Measure("read_4KB", false, func() {
+		readChunked(resolveInput(*input), 4*1024)
+	})
+	Measure("read_500KB", false, func() {
+		readChunked(resolveInput(*input), 512*1024)
+	})
+	Measure("read_1MB", false, func() {
+		readChunked(resolveInput(*input), 1024*1024)
+	})
+	Measure("read_2MB", false, func() {
+		readChunked(resolveInput(*input), 2*1024*1024)
+	})
+	Measure("read_16MB", false, func() {
+		readChunked(resolveInput(*input), 16*1024*1024)
+	})
+}
