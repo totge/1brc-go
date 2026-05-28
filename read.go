@@ -2,8 +2,13 @@ package main
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"io"
+	"log"
 	"os"
+
+	"golang.org/x/exp/mmap"
 )
 
 func readBufioScanner(path string) int {
@@ -70,4 +75,54 @@ func readChunked(path string, size int) int {
 		}
 	}
 	return count
+}
+
+func readMMapped(path string, bufSize int) {
+	reader, err := mmap.Open(path)
+	if err != nil {
+		log.Fatalf("failed to open file: %v", err)
+	}
+	defer reader.Close()
+
+	buf := make([]byte, bufSize)
+	n := 0
+
+	for true {
+		_, err := reader.ReadAt(buf, int64(n*bufSize))
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				fmt.Println("Successfully reached the end of the file.")
+				break
+			}
+			log.Fatalf("Error reading file during iteration: %v", err)
+		}
+
+		n++
+
+	}
+}
+
+func readMMappedIterate(path string, bufSize int) {
+	reader, err := mmap.Open(path)
+	if err != nil {
+		log.Fatalf("failed to open file: %v", err)
+	}
+	defer reader.Close()
+
+	buf := make([]byte, bufSize)
+	n := 0
+
+	for true {
+		_, err := reader.ReadAt(buf, int64(n*bufSize))
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				fmt.Println("Successfully reached the end of the file.")
+				break
+			}
+			log.Fatalf("Error reading file during iteration: %v", err)
+		}
+
+		n++
+
+	}
 }
