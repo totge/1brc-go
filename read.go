@@ -21,10 +21,6 @@ func readBufioScanner(path string) int {
 	return count
 }
 
-func readBufio4KB(path string) int  { return readBufioSize(path, 4*1024) }
-func readBufio1MB(path string) int  { return readBufioSize(path, 1024*1024) }
-func readBufio16MB(path string) int { return readBufioSize(path, 16*1024*1024) }
-
 func readBufioSize(path string, bufSize int) int {
 	file, err := os.Open(path)
 	if err != nil {
@@ -50,14 +46,14 @@ func readBufioSize(path string, bufSize int) int {
 	return count
 }
 
-func readChunked(path string) int {
+func readChunked(path string, size int) int {
 	file, err := os.Open(path)
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
 
-	buf := make([]byte, 16*1024*1024)
+	buf := make([]byte, size)
 	count := 0
 	for {
 		n, err := file.Read(buf)
