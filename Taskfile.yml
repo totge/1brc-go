@@ -1,0 +1,58 @@
+version: "3"
+
+tasks:
+  build:
+    desc: Compile binary
+    cmds:
+      - go build -o ./bin/1brc-go .
+
+  run:
+    desc: "Run the program without measurement. Usage: task run INPUT=small"
+    deps: [build]
+    cmds:
+      - './1brc-go -f {{.INPUT | default "small"}}'
+
+  measure:
+    desc: "Run TestMeasureRun. Usage: task measure INPUT=small [PROFILE=true]"
+    cmds:
+      - 'go test -v -run=TestMeasureRun -args -f {{.INPUT | default "small"}}{{if .PROFILE}} -p{{end}}'
+
+  measure-active:
+    desc: "Run tests listed in active_tests.txt. Usage: task measure-active INPUT=small"
+    cmds:
+      - |
+        TESTS=$(grep -v '^#' active_tests.txt | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
+        go test -v -run="$TESTS" -args -f {{.INPUT | default "small"}}
+
+  bench:
+    desc: "go test benchmarks (best for small file). Usage: task bench INPUT=small"
+    cmds:
+      - 'go test -run=^$ -bench=. -benchmem -args -f {{.INPUT | default "small"}}'
+
+  time:
+    desc: "External wall-clock, no overhead. Usage: task time INPUT=small"
+    deps: [build]
+    cmds:
+      - 'time ./1brc-go -f {{.INPUT | default "small"}}'
+
+  time-full:
+    desc: External timing with max RSS on full dataset (macOS)
+    deps: [build]
+    cmds:
+      - /usr/bin/time -l ./1brc-go -f full
+
+  pprof-cpu:
+    desc: "Open CPU profile in browser. Usage: task pprof-cpu FILE=profiles/cpu_scanner_20240527_120000.prof"
+    cmds:
+      - "go tool pprof -http=:8080 {{.FILE}}"
+
+  pprof-mem:
+    desc: "Open heap profile in browser. Usage: task pprof-mem FILE=profiles/mem_scanner_20240527_120000.prof"
+    cmds:
+      - "go tool pprof -http=:8081 {{.FILE}}"
+
+  clean:
+    desc: Remove binary and profiles
+    cmds:
+      - rm -f ./bin/1brc-go
+      - rm -rf profiles/
