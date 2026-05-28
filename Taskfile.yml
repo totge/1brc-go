@@ -22,7 +22,7 @@ tasks:
     cmds:
       - |
         TESTS=$(grep -v '^#' active_tests.txt | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
-        go test -v -run="$TESTS" -args -f {{.INPUT | default "small"}}
+        go test -v -run="$TESTS" -args -f {{.INPUT | default "small"}}{{if .PROFILE}} -p{{end}}
 
   bench:
     desc: "go test benchmarks (best for small file). Usage: task bench INPUT=small"
@@ -55,4 +55,4 @@ tasks:
     desc: Remove binary and profiles
     cmds:
       - rm -f ./bin/1brc-go
-      - rm -rf profiles/
+      - rm -rf profiles/*
