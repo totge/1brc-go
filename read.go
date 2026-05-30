@@ -7,8 +7,10 @@ import (
 	"io"
 	"log"
 	"os"
+	"syscall"
 
 	"golang.org/x/exp/mmap"
+	"golang.org/x/sys/unix"
 )
 
 func readBufioScanner(path string) int {
@@ -125,4 +127,157 @@ func readMMappedIterate(path string, bufSize int) {
 		n++
 
 	}
+}
+
+func readMMappedNoCopy(path string) int {
+	file, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	// Get file size
+	info, err := file.Stat()
+	if err != nil {
+		panic(err)
+	}
+	size := info.Size()
+
+	// Map the entire file into memory as a single giant []byte
+	// MAP_SHARED means changes are shared (we only read, so it doesn't matter)
+	// PROT_READ means we only want read access
+	data, err := syscall.Mmap(int(file.Fd()), 0, int(size), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		panic(err)
+	}
+	// Make sure we unmap when done to free OS resources
+	defer syscall.Munmap(data)
+
+	err = unix.Madvise(data, unix.MADV_SEQUENTIAL)
+	if err != nil {
+		panic(err)
+	}
+	// Now we have ZERO COPY. 'data' is pointing directly to the OS cache!
+	count := 0
+	// for _, b := range data {
+	// 	if b == '\n' {
+	// 		count++
+	// 	}
+	// }
+
+	for i := range len(data) {
+		if data[i] == '\n' {
+			count++
+		}
+	}
+
+	return count
+}
+
+type Chunk struct {
+	start int64
+	end   int64
+}
+
+func calculateChunkBoundaries(file *os.File, numChunks int) []Chunk {
+	chunks := make([]Chunk, numChunks)
+
+	// Get file size
+	info, err := file.Stat()
+	if err != nil {
+		panic(err)
+	}
+	fileSize := info.Size()
+
+	baseChunkSize := fileSize / int64(numChunks)
+	var offset int64
+	// station name is 100 bytes max, measurement is another ~10 bytes
+	// so 128 is enough fit on record
+	peekBuf := make([]byte, 128)
+
+	for i := range numChunks {
+		chunks[i].start = offset
+
+		targetEnd := offset + baseChunkSize // for the last chunk this coulb go over the file length
+		// handling going over file length
+		if targetEnd >= fileSize {
+			chunks[i].end = fileSize
+			break
+		}
+
+		n, err := file.ReadAt(peekBuf, targetEnd)
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				// fmt.Println("Successfully reached the end of the file.")
+				log.Fatalf("Error reading file during iteration: %v", err)
+			}
+		}
+
+		for correction := range n {
+			if peekBuf[correction] == '\n' {
+				offset = targetEnd + int64(correction) + 1
+				break
+			}
+		}
+
+		chunks[i].end = offset
+
+	}
+
+	return chunks
+}
+
+func processChunk(file *os.File, chunk Chunk, bufferSize int, c chan int) {
+	var offset int64 = int64(chunk.start)
+	buffer := make([]byte, bufferSize)
+	counter := 0
+
+	for offset < chunk.end {
+
+		n, err := file.ReadAt(buffer, offset)
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				// fmt.Println("Successfully reached the end of the file.")
+				log.Fatalf("Error reading file during iteration: %v", err)
+			}
+		}
+
+		// only read until chunk end if buffer read data over it
+		bytesLeft := chunk.end - offset
+		readSize := min(int64(n), bytesLeft)
+
+		for i := range readSize {
+			if buffer[i] == '\n' {
+				counter++
+			}
+		}
+
+		offset += int64(n)
+	}
+
+	c <- counter
+}
+
+func readChunkedConcurrent(path string, numChunks int, buffSize int) int {
+
+	file, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	chunks := calculateChunkBoundaries(file, numChunks)
+	c := make(chan int, numChunks)
+
+	for _, chunk := range chunks {
+		go processChunk(file, chunk, buffSize, c)
+	}
+
+	total := 0
+	for range numChunks {
+		total += <-c
+	}
+
+	fmt.Printf("Found %d records.\n", total)
+	return total
 }
