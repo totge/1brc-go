@@ -2,4 +2,5 @@
 # One test function name per line. Lines starting with # are ignored.
 
 
-TestMMappedRead
+TestChunkedReadConcurrent
+TestChunkedWorkerPool

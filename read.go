@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -234,23 +235,19 @@ func processChunk(file *os.File, chunk Chunk, bufferSize int, c chan int) {
 
 	for offset < chunk.end {
 
-		n, err := file.ReadAt(buffer, offset)
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				// fmt.Println("Successfully reached the end of the file.")
-				log.Fatalf("Error reading file during iteration: %v", err)
-			}
-		}
+		n, _ := file.ReadAt(buffer, offset)
+		// if err != nil {
+		// 	if !errors.Is(err, io.EOF) {
+		// 		// fmt.Println("Successfully reached the end of the file.")
+		// 		log.Fatalf("Error reading file during iteration: %v", err)
+		// 	}
+		// }
 
 		// only read until chunk end if buffer read data over it
 		bytesLeft := chunk.end - offset
 		readSize := min(int64(n), bytesLeft)
 
-		for i := range readSize {
-			if buffer[i] == '\n' {
-				counter++
-			}
-		}
+		counter += bytes.Count(buffer[:readSize], []byte{'\n'})
 
 		offset += int64(n)
 	}
@@ -280,4 +277,65 @@ func readChunkedConcurrent(path string, numChunks int, buffSize int) int {
 
 	fmt.Printf("Found %d records.\n", total)
 	return total
+}
+
+func readChunkedWorkerPool(path string, numChunks int, numWorkers int, buffSize int) int {
+	file, err := os.Open(path)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	chunks := calculateChunkBoundaries(file, numChunks)
+
+	// 2. Put all chunks into a buffered channel
+	chunkChan := make(chan Chunk, numChunks)
+	for _, chunk := range chunks {
+		chunkChan <- chunk
+	}
+	close(chunkChan) // Close it so workers know when to stop
+
+	resultChan := make(chan int, numWorkers)
+
+	for range numWorkers {
+		go func() {
+			// Allocate the buffer ONCE per worker, reuse it for all chunks!
+			buffer := make([]byte, buffSize)
+			workerTotal := 0
+
+			// The worker constantly pulls chunks until the channel is empty
+			for chunk := range chunkChan {
+				workerTotal += processSingleChunk(file, chunk, buffer)
+			}
+			resultChan <- workerTotal
+		}()
+	}
+
+	// 4. Aggregate results from the workers
+	total := 0
+	for range numWorkers {
+		total += <-resultChan
+	}
+
+	return total
+}
+
+// Notice we pass the pre-allocated buffer in, rather than recreating it!
+func processSingleChunk(file *os.File, chunk Chunk, buffer []byte) int {
+	offset := chunk.start
+	counter := 0
+	bufferSize := len(buffer)
+
+	for offset < chunk.end {
+		bytesLeft := chunk.end - offset
+		readSize := min(int64(bufferSize), bytesLeft)
+
+		n, _ := file.ReadAt(buffer[:readSize], offset)
+
+		counter += bytes.Count(buffer[:n], []byte{'\n'})
+
+		offset += int64(n)
+	}
+
+	return counter
 }

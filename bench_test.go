@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -74,4 +75,47 @@ func TestMMappedRead(t *testing.T) {
 	Measure("mapped_16MB", *profile, func() {
 		readMMapped(resolveInput(*input), 16*1024*1024)
 	})
+}
+
+func TestMMappedReadNoCopy(t *testing.T) {
+	Measure("mapped_no_copy", *profile, func() {
+		readMMappedNoCopy(resolveInput(*input))
+	})
+
+}
+
+func TestChunkedReadConcurrent(t *testing.T) {
+	// Measure("chunked_14_6MB", *profile, func() {
+	// 	readChunkedConcurrent(resolveInput(*input), 14, 6*1024*1024)
+	// })
+	// Measure("chunked_16_6MB", *profile, func() {
+	// 	readChunkedConcurrent(resolveInput(*input), 16, 6*1024*1024)
+	// })
+	// Measure("chunked_14_4MB", *profile, func() {
+	// 	readChunkedConcurrent(resolveInput(*input), 14, 4*1024*1024)
+	// })
+	Measure("chunked_16_4MB", *profile, func() {
+		readChunkedConcurrent(resolveInput(*input), 16, 4*1024*1024)
+	})
+}
+
+func TestChunkedWorkerPool(t *testing.T) {
+	Measure("pool_128_auto_8MB", *profile, func() {
+		readChunkedWorkerPool(resolveInput(*input), 128, runtime.NumCPU(), 8*1024*1024)
+	})
+	// Measure("pool_128_auto_4MB", *profile, func() {
+	// 	readChunkedWorkerPool(resolveInput(*input), 128, runtime.NumCPU(), 4*1024*1024)
+	// })
+	// Measure("pool_128_auto_2MB", *profile, func() {
+	// 	readChunkedWorkerPool(resolveInput(*input), 128, runtime.NumCPU(), 2*1024*1024)
+	// })
+	// Measure("pool_200_32_4MB", *profile, func() {
+	// 	readChunkedWorkerPool(resolveInput(*input), 200, 32, 4*1024*1024)
+	// })
+	// Measure("pool_50_16_4MB", *profile, func() {
+	// 	readChunkedWorkerPool(resolveInput(*input), 50, 16, 4*1024*1024)
+	// })
+	// Measure("pool_16_16_4MB", *profile, func() {
+	// 	readChunkedWorkerPool(resolveInput(*input), 16, 16, 4*1024*1024)
+	// })
 }
