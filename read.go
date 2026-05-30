@@ -65,11 +65,8 @@ func readChunked(path string, size int) int {
 	count := 0
 	for {
 		n, err := file.Read(buf)
-		for _, b := range buf[:n] {
-			if b == '\n' {
-				count++
-			}
-		}
+		count += bytes.Count(buf[:n], []byte{'\n'})
+
 		if err != nil {
 			if err == io.EOF {
 				break

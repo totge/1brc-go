@@ -85,15 +85,15 @@ func TestMMappedReadNoCopy(t *testing.T) {
 }
 
 func TestChunkedReadConcurrent(t *testing.T) {
-	// Measure("chunked_14_6MB", *profile, func() {
-	// 	readChunkedConcurrent(resolveInput(*input), 14, 6*1024*1024)
-	// })
-	// Measure("chunked_16_6MB", *profile, func() {
-	// 	readChunkedConcurrent(resolveInput(*input), 16, 6*1024*1024)
-	// })
-	// Measure("chunked_14_4MB", *profile, func() {
-	// 	readChunkedConcurrent(resolveInput(*input), 14, 4*1024*1024)
-	// })
+	Measure("chunked_14_6MB", *profile, func() {
+		readChunkedConcurrent(resolveInput(*input), 14, 6*1024*1024)
+	})
+	Measure("chunked_16_6MB", *profile, func() {
+		readChunkedConcurrent(resolveInput(*input), 16, 6*1024*1024)
+	})
+	Measure("chunked_14_4MB", *profile, func() {
+		readChunkedConcurrent(resolveInput(*input), 14, 4*1024*1024)
+	})
 	Measure("chunked_16_4MB", *profile, func() {
 		readChunkedConcurrent(resolveInput(*input), 16, 4*1024*1024)
 	})

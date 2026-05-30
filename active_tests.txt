@@ -1,6 +1,5 @@
 # Tests to run with: task measure-active
 # One test function name per line. Lines starting with # are ignored.
 
-
+TestReadSequeltial
 TestChunkedReadConcurrent
-TestChunkedWorkerPool
