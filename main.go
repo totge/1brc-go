@@ -1,258 +1,68 @@
 package main
 
 import (
-	"bufio"
-	"encoding/csv"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"runtime/trace"
-	"sort"
-	"strconv"
-	"strings"
 	"time"
 )
 
-var version string = "v2-async-buffer"
-
-var dir = flag.String("dir", "", "sudirectory for the profile files in the `profiles` folder")
-var postfix = flag.String("psf", "", "postfix for the profile files")
-var input = flag.String("f", "", "input size, `smalll`/`mid`/`large`/`full`")
-var loops = flag.Int("n", 1, "number of executions")
-
-func saveStats(execTimes []float64, loopNums int, input string) {
-
-	var sum float64
-	var minExec float64
-	var maxExec float64
-
-	for i, dur := range execTimes {
-		sum += dur
-		maxExec = max(maxExec, dur)
-
-		if i == 0 {
-			minExec = dur
-		} else {
-			minExec = min(minExec, dur)
-		}
-	}
-	avgExec := sum / float64(loopNums)
-
-	fmt.Printf("Avg execution time was: %f.\n\tmax time: %f\n\tmin time: %f\n", avgExec, maxExec, minExec)
-
-	file, err := os.OpenFile("./stat/timestats.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Println(err)
-		fmt.Println(execTimes)
-		return
-	}
-	defer file.Close()
-
-	w := csv.NewWriter(file)
-
-	record := []string{
-		time.Now().Format(time.DateTime),
-		version,
-		input,
-		fmt.Sprintf("%d", loopNums),
-		strconv.FormatFloat(avgExec, 'f', 3, 64),
-		strconv.FormatFloat(minExec, 'f', 3, 64),
-		strconv.FormatFloat(maxExec, 'f', 3, 64),
-		fmt.Sprintf("%v", execTimes),
-	}
-
-	w.Write(record)
-	w.Flush()
-}
+var input = flag.String("f", "small", "dataset: small, full")
+var profile = flag.Bool("p", false, "save cpu and memory profiles")
 
 func main() {
 	flag.Parse()
+	inputPath, outputPath := resolveFileSize(*input)
+	Runner(inputPath, outputPath)
+}
 
-	if *dir != "" {
-
-		folder := "./profiles/" + *dir
-
-		if err := os.Mkdir(folder, 0755); os.IsExist(err) {
-			fmt.Println("The directory named", *dir, "exists")
-		}
-
-		execFile, err := os.Create(folder + "/exec_" + *postfix + ".prof")
-		if err != nil {
-			log.Fatal("could not create trace execution profile: ", err)
-		}
-		defer execFile.Close()
-		trace.Start(execFile)
-		defer trace.Stop()
-
-		cpuFile, err := os.Create(folder + "/cpu_" + *postfix + ".prof")
-		if err != nil {
-			log.Fatal("could not create CPU profile: ", err)
-		}
-		defer cpuFile.Close()
-
-		if err := pprof.StartCPUProfile(cpuFile); err != nil {
-			log.Fatal("could not start CPU profile: ", err)
-		}
-		defer pprof.StopCPUProfile()
-
-		memFile, err := os.Create(folder + "/mem_" + *postfix + ".prof")
-		if err != nil {
-			log.Fatal("could not create memory profile: ", err)
-		}
-		defer memFile.Close()
-		runtime.GC()
-		if err := pprof.WriteHeapProfile(memFile); err != nil {
-			log.Fatal("could not write memory profile: ", err)
-		}
-
-	}
-
-	var filePath string
-	fmt.Printf("input: %s\n", *input)
-	switch *input {
-	case "small":
-		filePath = "data/measurements_small.txt"
+func resolveFileSize(name string) (string, string) {
+	switch name {
 	case "mid":
-		filePath = "data/measurements_mid.txt"
+		return "data/measurements_mid.txt", "results/results_mid.txt"
 	case "full":
-		filePath = "data/measurements.txt"
-	case "large":
-		filePath = "data/measurements_large.txt"
+		return "data/measurements.txt", "results/results.txt"
 	default:
-		filePath = "data/measurements_small.txt"
+		return "data/measurements_small.txt", "results/results_small.txt"
 	}
-
-	fmt.Printf("file path: %s\n", filePath)
-
-	execTimes := make([]float64, 0, *loops)
-
-	for i := 0; i < *loops; i++ {
-		start := time.Now()
-		process(filePath)
-		dur := time.Since(start)
-
-		execTimes = append(execTimes, dur.Seconds())
-	}
-
-	saveStats(execTimes, *loops, *input)
-
 }
 
-type measurement struct {
-	location    string
-	temperature float64
+// wrapper to run a function and add add time measurement and profiling
+func Measure(name string, enableProfile bool, fn func()) {
+	now := time.Now()
+	timestamp := now.Format("20060102_150405")
+
+	var cpuFile *os.File
+	if enableProfile {
+		cpuFile, _ = os.Create(fmt.Sprintf("profiles/cpu_%s_%s.prof", name, timestamp))
+		pprof.StartCPUProfile(cpuFile)
+	}
+
+	runtime.GC()
+	var mStart, mEnd runtime.MemStats
+	runtime.ReadMemStats(&mStart)
+	start := time.Now()
+
+	fn()
+
+	elapsed := time.Since(start)
+
+	if enableProfile {
+		pprof.StopCPUProfile()
+		cpuFile.Close()
+		memFile, _ := os.Create(fmt.Sprintf("profiles/mem_%s_%s.prof", name, timestamp))
+		pprof.WriteHeapProfile(memFile)
+		memFile.Close()
+	}
+
+	runtime.ReadMemStats(&mEnd)
+	allocMB := float64(mEnd.TotalAlloc-mStart.TotalAlloc) / 1024 / 1024
+
+	fmt.Printf("➜ [%-15s] Time: %-12s | Mem: %7.2f MB | Profiled: %v\n", name, elapsed, allocMB, enableProfile)
 }
 
-type aggregate struct {
-	sum     float64
-	count   int
-	minTemp float64
-	maxTemp float64
-}
-
-func (a *aggregate) addMeasurement(temp float64) {
-	a.count += 1
-	a.sum += temp
-	a.minTemp = min(temp, a.minTemp)
-	a.maxTemp = max(temp, a.maxTemp)
-}
-
-func (a *aggregate) calcMetrics() (minTemp float64, maxTemp float64, avg float64) {
-	avg = a.sum / float64(a.count)
-	return a.minTemp, a.maxTemp, avg
-}
-
-// producer function to read the file asyncronously
-func produceLine(filePath string, lineQueue chan string) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		lineQueue <- scanner.Text()
-	}
-	close(lineQueue)
-}
-
-// orchestrates the entire process from reading the input till producing the output
-func process(filePath string) {
-
-	lineQueue := make(chan string, 20000)
-
-	go produceLine(filePath, lineQueue)
-
-	// map to group measurements by location
-	grouped := make(map[string]*aggregate)
-
-	// iterate over the lines recieved through the channel
-	for line := range lineQueue {
-
-		location, temperature := processData(line)
-
-		if agg, ok := grouped[location]; ok {
-			agg.addMeasurement(temperature)
-		} else {
-			agg = &aggregate{sum: temperature, count: 1, minTemp: temperature, maxTemp: temperature}
-			grouped[location] = agg
-		}
-	}
-
-	// create a sorted list of the locations
-	locations := make([]string, 0, len(grouped))
-
-	for l := range grouped {
-		locations = append(locations, l)
-	}
-	sort.Strings(locations)
-
-	// open file for output
-	csvFile, err := os.Create("output/result.csv")
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-	defer csvFile.Close()
-
-	header := []string{"loaction", "min", "max", "avg"}
-	csvWriter := csv.NewWriter(csvFile)
-	csvWriter.Write(header)
-
-	// calculate the metrics for each location, write it to output
-	for _, l := range locations {
-
-		agg := grouped[l]
-
-		minTemp, maxTemp, avgTemp := agg.calcMetrics()
-
-		minTempStr := strconv.FormatFloat(minTemp, 'f', 1, 64)
-		maxTempStr := strconv.FormatFloat(maxTemp, 'f', 1, 64)
-		avgTempStr := strconv.FormatFloat(avgTemp, 'f', 1, 64)
-
-		row := []string{l, minTempStr, maxTempStr, avgTempStr}
-		csvWriter.Write(row)
-	}
-
-	csvWriter.Flush()
-
-}
-
-func processData(line string) (location string, temperature float64) {
-
-	parts := strings.Split(line, ";")
-
-	location = parts[0]
-	temperature, err := strconv.ParseFloat(parts[1], 64)
-
-	if err != nil {
-		fmt.Printf("%s could not be parsed\n", parts[1])
-	}
-
-	return location, temperature
+func Runner(inputPath string, outputPath string) {
+	readMMappedNoCopy(inputPath)
 }
