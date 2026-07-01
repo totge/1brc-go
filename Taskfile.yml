@@ -18,7 +18,7 @@ tasks:
       - 'go test -v -run=TestMeasureRun -args -f {{.INPUT | default "small"}}{{if .PROFILE}} -p{{end}}'
 
   measure-active:
-    desc: "Run tests listed in active_tests.txt. Usage: task measure-active INPUT=small"
+    desc: "Run tests listed in active_tests.txt. Usage: task measure-active INPUT=small [PROFILE=true]"
     cmds:
       - |
         TESTS=$(grep -v '^#' active_tests.txt | grep -v '^[[:space:]]*$' | tr '\n' '|' | sed 's/|$//')
