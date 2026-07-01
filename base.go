@@ -178,7 +178,7 @@ func FormatMetrics(city string, metrics Metrics) string {
 	return fmt.Sprintf("%s=%.1f/%.1f/%.1f", city, min, avg, max)
 }
 
-func BaseExecute(inputPath string, bufferSize int) error {
+func BaseExecute(inputPath string, outputPath string, bufferSize int) error {
 
 	inputFile, err := os.Open(inputPath)
 	if err != nil {
@@ -186,7 +186,7 @@ func BaseExecute(inputPath string, bufferSize int) error {
 	}
 	defer inputFile.Close()
 
-	outputFile, err := os.OpenFile("results/results.txt", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
 		return fmt.Errorf("failed to open output file: %w", err)
 	}

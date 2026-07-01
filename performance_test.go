@@ -7,7 +7,8 @@ func TestBaseVersion(t *testing.T) {
 	// 	BaseExecute(resolveInput(*input), 4*1024*1024)
 	// })
 	Measure("sequential_idiomatic", *profile, func() {
-		BaseExecute(resolveInput(*input), 8*1024*1024)
+		inputPath, outputPath := resolveFileSize(*input)
+		BaseExecute(inputPath, outputPath, 8*1024*1024)
 	})
 	// Measure("sequential_idiomatic", *profile, func() {
 	// 	BaseExecute(resolveInput(*input), 12*1024*1024)

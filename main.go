@@ -14,17 +14,18 @@ var profile = flag.Bool("p", false, "save cpu and memory profiles")
 
 func main() {
 	flag.Parse()
-	Runner(resolveInput(*input))
+	inputPath, outputPath := resolveFileSize(*input)
+	Runner(inputPath, outputPath)
 }
 
-func resolveInput(name string) string {
+func resolveFileSize(name string) (string, string) {
 	switch name {
 	case "mid":
-		return "data/measurements_mid.txt"
+		return "data/measurements_mid.txt", "results/results_mid.txt"
 	case "full":
-		return "data/measurements.txt"
+		return "data/measurements.txt", "results/results.txt"
 	default:
-		return "data/measurements_small.txt"
+		return "data/measurements_small.txt", "results/results_small.txt"
 	}
 }
 
@@ -62,6 +63,6 @@ func Measure(name string, enableProfile bool, fn func()) {
 	fmt.Printf("➜ [%-15s] Time: %-12s | Mem: %7.2f MB | Profiled: %v\n", name, elapsed, allocMB, enableProfile)
 }
 
-func Runner(filePath string) {
-	readMMappedNoCopy(filePath)
+func Runner(inputPath string, outputPath string) {
+	readMMappedNoCopy(inputPath)
 }
