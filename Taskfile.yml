@@ -56,3 +56,17 @@ tasks:
     cmds:
       - rm -f ./bin/1brc-go
       - rm -rf profiles/*
+
+  validate:
+    desc: "Compare generated results against reference files"
+    cmds:
+      - echo "Validating small dataset..."
+      - diff -u --color=always results/reference/results_small.txt results/results_small.txt
+
+      - echo "Validating mid dataset..."
+      - diff -u --color=always results/reference/results_mid.txt results/results_mid.txt
+
+      - echo "Validating full dataset..."
+      - diff -u --color=always results/reference/results.txt results/results.txt
+
+      - echo "All generated results match the reference files perfectly!"
