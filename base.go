@@ -238,7 +238,7 @@ func BaseExecute(inputPath string, outputPath string, bufferSize int) error {
 		}
 	}
 
-	sb.WriteString("}")
+	sb.WriteString("}\n")
 
 	results := sb.String()
 
