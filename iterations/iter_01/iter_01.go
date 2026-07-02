@@ -116,21 +116,40 @@ type Metrics struct {
 	max float64
 }
 
+type AggregatedMeasurements struct {
+	min   float64
+	max   float64
+	sum   float64
+	count int
+}
+
 type Aggregator struct {
-	cityMeasurements map[string][]float64
+	cityMeasurements map[string]AggregatedMeasurements
 }
 
 func NewAggregator() Aggregator {
-	cityMeasurements := make(map[string][]float64)
+	cityMeasurements := make(map[string]AggregatedMeasurements)
 
 	return Aggregator{cityMeasurements: cityMeasurements}
 }
 
 func (a *Aggregator) AddRecord(record Record) {
 
-	measurements := a.cityMeasurements[record.station]
-	measurements = append(measurements, record.temp)
-	a.cityMeasurements[record.station] = measurements
+	aggMeasurement, ok := a.cityMeasurements[record.station]
+
+	if !ok { // no previous measurement for the city
+		aggMeasurement.min = record.temp
+		aggMeasurement.max = record.temp
+		aggMeasurement.sum = record.temp
+		aggMeasurement.count = 1
+	} else { // there's already previous measuremnts
+		aggMeasurement.min = min(aggMeasurement.min, record.temp)
+		aggMeasurement.max = max(aggMeasurement.max, record.temp)
+		aggMeasurement.sum += record.temp
+		aggMeasurement.count++
+	}
+
+	a.cityMeasurements[record.station] = aggMeasurement
 
 }
 
@@ -147,21 +166,14 @@ func (a *Aggregator) ListCities() []string {
 func (a *Aggregator) CalculateMetricsForCity(city string) (Metrics, error) {
 	var metrics Metrics
 
-	data, ok := a.cityMeasurements[city]
+	aggregatedData, ok := a.cityMeasurements[city]
 	if !ok {
 		return metrics, fmt.Errorf("city not found: %s", city)
 	}
 
-	count := len(data)
-	sum := 0.0
-	for _, v := range data {
-		sum += v
-	}
-
-	// TODO: do the rounding here
-	metrics.max = slices.Max(data)
-	metrics.min = slices.Min(data)
-	metrics.avg = sum / float64(count)
+	metrics.max = aggregatedData.max
+	metrics.min = aggregatedData.min
+	metrics.avg = aggregatedData.sum / float64(aggregatedData.count)
 
 	return metrics, nil
 }

@@ -137,14 +137,14 @@ func TestAggregator_AddRecord(t *testing.T) {
 
 	if measurements, ok := a.cityMeasurements["Hamburg"]; !ok {
 		t.Error("city not added to map")
-		if len(measurements) != 2 {
-			t.Errorf("expected 2 measurements for Hamburg, got %d", len(measurements))
+		if measurements.count != 2 {
+			t.Errorf("expected 2 measurements for Hamburg, got %d", measurements.count)
 		}
 	}
 	if measurements, ok := a.cityMeasurements["Oslo"]; !ok {
 		t.Error("city not added to map")
-		if len(measurements) != 1 {
-			t.Errorf("expected 1 measurements for Oslo, got %d", len(measurements))
+		if measurements.count != 1 {
+			t.Errorf("expected 1 measurements for Oslo, got %d", measurements.count)
 		}
 	}
 }
