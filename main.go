@@ -1,6 +1,7 @@
 package main
 
 import (
+	"1brc-go/iterations/base"
 	"flag"
 	"fmt"
 	"os"
@@ -64,5 +65,5 @@ func Measure(name string, enableProfile bool, fn func()) {
 }
 
 func Runner(inputPath string, outputPath string) {
-	readMMappedNoCopy(inputPath)
+	base.Execute(inputPath, outputPath, 4*1024*1024)
 }
