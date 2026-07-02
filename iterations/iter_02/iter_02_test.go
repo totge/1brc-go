@@ -1,6 +1,7 @@
 package iter02
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -46,13 +47,13 @@ func TestProduceRawRecords(t *testing.T) {
 	if len(records) != 3 {
 		t.Errorf("got %d recods, want %d", len(records), 3)
 	}
-	if records[0] != "abc\n" {
+	if string(records[0]) != "abc\n" {
 		t.Errorf("for first record got %s , want %s", records[0], "abc\n")
 	}
-	if records[1] != "defg\n" {
+	if string(records[1]) != "defg\n" {
 		t.Errorf("for second record got %s , want %s", records[1], "defg\n")
 	}
-	if records[2] != "hi\n" {
+	if string(records[2]) != "hi\n" {
 		t.Errorf("for first record got %s , want %s", records[2], "hi\n")
 	}
 }
@@ -60,35 +61,35 @@ func TestProduceRawRecords(t *testing.T) {
 func TestParseRecord(t *testing.T) {
 	tests := []struct {
 		name    string
-		input   string
+		input   []byte
 		want    Record
 		wantErr bool
 	}{
 		{
 			name:    "valid record",
-			input:   "Hamburg;12.3\n",
-			want:    Record{station: "Hamburg", temp: 12.3},
+			input:   []byte("Hamburg;12.3\n"),
+			want:    Record{station: []byte("Hamburg"), temp: 12.3},
 			wantErr: false,
 		},
 		{
 			name:    "negative temperature",
-			input:   "Oslo;-5.5\n",
-			want:    Record{station: "Oslo", temp: -5.5},
+			input:   []byte("Oslo;-5.5\n"),
+			want:    Record{station: []byte("Oslo"), temp: -5.5},
 			wantErr: false,
 		},
 		{
 			name:    "missing separator",
-			input:   "Hamburg12.3\n",
+			input:   []byte("Hamburg12.3\n"),
 			wantErr: true,
 		},
 		{
 			name:    "invalid float",
-			input:   "Hamburg;notafloat\n",
+			input:   []byte("Hamburg;notafloat\n"),
 			wantErr: true,
 		},
 		{
 			name:    "empty temperature",
-			input:   "Hamburg;\n",
+			input:   []byte("Hamburg;\n"),
 			wantErr: true,
 		},
 	}
@@ -102,7 +103,7 @@ func TestParseRecord(t *testing.T) {
 			}
 
 			if !tt.wantErr {
-				if got.station != tt.want.station {
+				if !bytes.Equal(got.station, tt.want.station) {
 					t.Errorf("got station %q, want %q", got.station, tt.want.station)
 				}
 				if got.temp != tt.want.temp {
@@ -123,9 +124,9 @@ func TestNewAggregator(t *testing.T) {
 
 func TestAggregator_AddRecord(t *testing.T) {
 	a := NewAggregator()
-	a.AddRecord(Record{station: "Hamburg", temp: 12.3})
-	a.AddRecord(Record{station: "Hamburg", temp: 5.0})
-	a.AddRecord(Record{station: "Oslo", temp: -3.0})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 12.3})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 5.0})
+	a.AddRecord(Record{station: []byte("Oslo"), temp: -3.0})
 
 	keysCount := 0
 	for range a.cityMeasurements {
@@ -152,9 +153,9 @@ func TestAggregator_AddRecord(t *testing.T) {
 func TestAggregator_ListCities(t *testing.T) {
 	a := NewAggregator()
 	//TODO: is it okay to use other mthods for these unitests?
-	a.AddRecord(Record{station: "Hamburg", temp: 10.0})
-	a.AddRecord(Record{station: "Oslo", temp: -1.0})
-	a.AddRecord(Record{station: "Hamburg", temp: 5.0})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 10.0})
+	a.AddRecord(Record{station: []byte("Oslo"), temp: -1.0})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 5.0})
 
 	cities := a.ListCities()
 	if len(cities) != 2 {
@@ -175,9 +176,9 @@ func TestAggregator_ListCities(t *testing.T) {
 
 func TestAggregator_CalculateMetricsForCity(t *testing.T) {
 	a := NewAggregator()
-	a.AddRecord(Record{station: "Hamburg", temp: 10.0})
-	a.AddRecord(Record{station: "Hamburg", temp: -2.0})
-	a.AddRecord(Record{station: "Hamburg", temp: 6.0})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 10.0})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: -2.0})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 6.0})
 
 	metrics, err := a.CalculateMetricsForCity("Hamburg")
 	if err != nil {
