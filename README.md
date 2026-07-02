@@ -12,4 +12,22 @@ No code optimization, nicely structured code
 #### Conclusions
 `Aggregator.AddRecord` takes the most cpu time and also allocates the most memory.
 
+When is on the cpu profile data, out of the four minutes execution time only around 114 seconds were spent executing the actual program. This suggest thatsignificant amount of time was spent for waiting for the operating system probably because the problem uses too much memory.
+
 -> It should only store aggregated numbers, not all data point which should lower the memory usage and also the time it takes to add each record to the hash map.
+
+### 2. Aggregated data
+#### Description
+Instead of storing each data point indivually, in this version, we only store aggregated data, minimum, maximum, sum and count of the processed measurements for each city. 
+
+#### Results
+➜ [iter_01        ] Time: 1m20.463489541s | Mem: 117579.30 MB | Profiled: false
+
+Significant improvement the program took less than half the time it took for the previous version to execute.
+
+#### Conclusions
+
+Based on the CPU profile around half of the execution time is spent executing the actual code and the other half is spent on the go run time managing the program. 
+On the program's side, it's the map access and assignment and the float parsing that seems to take the most time. On the runtime's side it is memory related management that seems to take to most time.
+
+The goal for the next iteration is to lower the number of steps that require memory allocation and to try release the garbage collection pressure.
