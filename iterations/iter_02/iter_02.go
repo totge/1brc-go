@@ -1,6 +1,7 @@
 package iter02
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"math"
@@ -71,14 +72,14 @@ func (chr *ChunkReader) ReadNextChunk() ([]byte, error) {
 	return adjustedChunk, nil
 }
 
-func ProduceRawRecords(chunk []byte, separator byte) []string {
-	var records []string
+func ProduceRawRecords(chunk []byte, separator byte) [][]byte {
+	records := make([][]byte, 0, 40000) // this number might need to be tuned
 
 	recordStart := 0
 
 	for i, b := range chunk {
 		if b == separator {
-			records = append(records, string(chunk[recordStart:i+1]))
+			records = append(records, chunk[recordStart:i+1])
 			recordStart = i + 1
 		}
 	}
@@ -87,21 +88,21 @@ func ProduceRawRecords(chunk []byte, separator byte) []string {
 }
 
 type Record struct {
-	station string
+	station []byte
 	temp    float64
 }
 
-func ParseRecord(rawRecord string) (Record, error) {
+func ParseRecord(rawRecord []byte) (Record, error) {
 	var record Record
 
-	separatorIdx := strings.Index(rawRecord, ";")
+	separatorIdx := bytes.Index(rawRecord, []byte(";"))
 	if separatorIdx == -1 {
 		return record, fmt.Errorf("separator ';' not found in record: %s", rawRecord)
 	}
 
 	record.station = rawRecord[:separatorIdx]
 
-	temp, err := strconv.ParseFloat(rawRecord[separatorIdx+1:len(rawRecord)-1], 64)
+	temp, err := strconv.ParseFloat(string(rawRecord[separatorIdx+1:len(rawRecord)-1]), 64)
 	if err != nil {
 		return record, fmt.Errorf("failed to convert temperature to float in record: %s", rawRecord)
 	}
@@ -135,7 +136,7 @@ func NewAggregator() Aggregator {
 
 func (a *Aggregator) AddRecord(record Record) {
 
-	aggMeasurement, ok := a.cityMeasurements[record.station]
+	aggMeasurement, ok := a.cityMeasurements[string(record.station)]
 
 	if !ok { // no previous measurement for the city
 		aggMeasurement.min = record.temp
@@ -149,7 +150,7 @@ func (a *Aggregator) AddRecord(record Record) {
 		aggMeasurement.count++
 	}
 
-	a.cityMeasurements[record.station] = aggMeasurement
+	a.cityMeasurements[string(record.station)] = aggMeasurement
 
 }
 
