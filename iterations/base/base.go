@@ -1,4 +1,4 @@
-package main
+package base
 
 import (
 	"fmt"
@@ -178,7 +178,7 @@ func FormatMetrics(city string, metrics Metrics) string {
 	return fmt.Sprintf("%s=%.1f/%.1f/%.1f", city, min, avg, max)
 }
 
-func BaseExecute(inputPath string, outputPath string, bufferSize int) error {
+func Execute(inputPath string, outputPath string, bufferSize int) error {
 
 	inputFile, err := os.Open(inputPath)
 	if err != nil {
