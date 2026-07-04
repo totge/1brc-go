@@ -72,19 +72,48 @@ func (chr *ChunkReader) ReadNextChunk() ([]byte, error) {
 	return adjustedChunk, nil
 }
 
-func ProduceRawRecords(chunk []byte, separator byte) [][]byte {
-	records := make([][]byte, 0, 40000) // this number might need to be tuned
+type RecordGenerator struct {
+	chunk     []byte
+	offset    int
+	separator byte
+	hasNext   bool
+}
 
-	recordStart := 0
+func NewRecordGenerator(chunk []byte, separator byte) *RecordGenerator {
+	return &RecordGenerator{
+		chunk:     chunk,
+		offset:    0,
+		separator: separator,
+		hasNext:   true,
+	}
+}
 
-	for i, b := range chunk {
-		if b == separator {
-			records = append(records, chunk[recordStart:i+1])
-			recordStart = i + 1
-		}
+func (rg *RecordGenerator) ReadNextRecord() ([]byte, error) {
+
+	recordStart := rg.offset
+	relativeEnd := bytes.Index(rg.chunk[rg.offset:], []byte{rg.separator})
+
+	// handle if separator not found
+	if relativeEnd == -1 {
+		return nil, fmt.Errorf("failed to find separator in chunk")
 	}
 
-	return records
+	// bytes.Index returns a position relative to the rg.chunk[rg.offset:] slice,
+	// so it must be shifted back by rg.offset to index into rg.chunk itself
+	recordEnd := rg.offset + relativeEnd
+	// handle reaching end of chunk
+	if recordEnd+1 == len(rg.chunk) {
+		rg.hasNext = false
+	}
+
+	// updating offset
+	rg.offset = recordEnd + 1
+
+	return rg.chunk[recordStart:recordEnd], nil
+}
+
+func (rg *RecordGenerator) HasNext() bool {
+	return rg.hasNext
 }
 
 type Record struct {
@@ -215,9 +244,16 @@ func Execute(inputPath string, outputPath string, bufferSize int) error {
 			return fmt.Errorf("failed reading chunk: %w", err)
 		}
 
-		rawRecords := ProduceRawRecords(chunk, '\n')
+		recordGenerator := NewRecordGenerator(chunk, '\n')
+		// rawRecords := ProduceRawRecords(chunk, '\n')
 
-		for _, rawRec := range rawRecords {
+		for recordGenerator.HasNext() {
+
+			rawRec, err := recordGenerator.ReadNextRecord()
+			if err != nil {
+				return fmt.Errorf("failed reading record from chunk: %w", err)
+			}
+
 			record, err := ParseRecord(rawRec)
 			if err != nil {
 				return fmt.Errorf("failed parsing record '%s': %w", rawRec, err)

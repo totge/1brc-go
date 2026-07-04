@@ -39,22 +39,58 @@ func TestChunkReader_ReadNextChunk(t *testing.T) {
 
 }
 
-func TestProduceRawRecords(t *testing.T) {
-	input := "abc\ndefg\nhi\n"
+func TestRecordGenerator_ReadNextRecord(t *testing.T) {
+	chunk := []byte("abc\ndefg\nhi\n")
 
-	records := ProduceRawRecords([]byte(input), '\n')
+	recordGenerator := NewRecordGenerator(chunk, '\n')
 
-	if len(records) != 3 {
-		t.Errorf("got %d recods, want %d", len(records), 3)
+	tests := []struct {
+		name          string
+		expectRecord  string
+		expectHasNext bool
+	}{
+		{"First", "abc", true},
+		{"Second", "defg", true},
+		{"Third", "hi", false},
 	}
-	if string(records[0]) != "abc\n" {
-		t.Errorf("for first record got %s , want %s", records[0], "abc\n")
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := recordGenerator.ReadNextRecord()
+			if err != nil {
+				t.Fatalf("unexpected failure when reading record: %v", err)
+			}
+			if string(got) != testCase.expectRecord {
+				t.Errorf("got %q, want %q", string(got), testCase.expectRecord)
+			}
+			if recordGenerator.HasNext() != testCase.expectHasNext {
+				t.Errorf("RecordGenerator HasNext() got %t, want %t", recordGenerator.HasNext(), testCase.expectHasNext)
+			}
+		})
 	}
-	if string(records[1]) != "defg\n" {
-		t.Errorf("for second record got %s , want %s", records[1], "defg\n")
+}
+
+func TestRecordGenerator_ReadNextRecord_SingleRecord(t *testing.T) {
+	recordGenerator := NewRecordGenerator([]byte("solo\n"), '\n')
+
+	got, err := recordGenerator.ReadNextRecord()
+	if err != nil {
+		t.Fatalf("unexpected failure when reading record: %v", err)
 	}
-	if string(records[2]) != "hi\n" {
-		t.Errorf("for first record got %s , want %s", records[2], "hi\n")
+	if string(got) != "solo" {
+		t.Errorf("got %q, want %q", string(got), "solo")
+	}
+	if recordGenerator.HasNext() {
+		t.Errorf("expected HasNext() to be false after the last record")
+	}
+}
+
+func TestRecordGenerator_ReadNextRecord_NoSeparator(t *testing.T) {
+	recordGenerator := NewRecordGenerator([]byte("noseparator"), '\n')
+
+	_, err := recordGenerator.ReadNextRecord()
+	if err == nil {
+		t.Errorf("expected error when no separator is present, got nil")
 	}
 }
 
