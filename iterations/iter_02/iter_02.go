@@ -245,7 +245,6 @@ func Execute(inputPath string, outputPath string, bufferSize int) error {
 		}
 
 		recordGenerator := NewRecordGenerator(chunk, '\n')
-		// rawRecords := ProduceRawRecords(chunk, '\n')
 
 		for recordGenerator.HasNext() {
 
