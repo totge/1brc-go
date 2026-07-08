@@ -153,17 +153,17 @@ type AggregatedMeasurements struct {
 	count int
 }
 
-type Aggregator struct {
+type MeasurementAggregator struct {
 	cityMeasurements map[string]AggregatedMeasurements
 }
 
-func NewAggregator() Aggregator {
+func NewMeasurementAggregator() MeasurementAggregator {
 	cityMeasurements := make(map[string]AggregatedMeasurements)
 
-	return Aggregator{cityMeasurements: cityMeasurements}
+	return MeasurementAggregator{cityMeasurements: cityMeasurements}
 }
 
-func (a *Aggregator) AddRecord(record Record) {
+func (a *MeasurementAggregator) AddRecord(record Record) {
 
 	aggMeasurement, ok := a.cityMeasurements[string(record.station)]
 
@@ -183,7 +183,7 @@ func (a *Aggregator) AddRecord(record Record) {
 
 }
 
-func (a *Aggregator) ListCities() []string {
+func (a *MeasurementAggregator) ListCities() []string {
 	cities := make([]string, 0, len(a.cityMeasurements))
 
 	for k := range a.cityMeasurements {
@@ -193,7 +193,7 @@ func (a *Aggregator) ListCities() []string {
 	return cities
 }
 
-func (a *Aggregator) CalculateMetricsForCity(city string) (Metrics, error) {
+func (a *MeasurementAggregator) CalculateMetricsForCity(city string) (Metrics, error) {
 	var metrics Metrics
 
 	aggregatedData, ok := a.cityMeasurements[city]
@@ -235,7 +235,7 @@ func Execute(inputPath string, outputPath string, bufferSize int) error {
 	defer outputFile.Close()
 
 	reader := NewChunkReader(inputFile, bufferSize, '\n')
-	aggregator := NewAggregator()
+	aggregator := NewMeasurementAggregator()
 
 	// read and aggregate data
 	for reader.HasNext() {

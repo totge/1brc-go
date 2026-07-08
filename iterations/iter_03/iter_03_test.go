@@ -151,7 +151,7 @@ func TestParseRecord(t *testing.T) {
 }
 
 func TestNewAggregator(t *testing.T) {
-	a := NewAggregator()
+	a := NewMeasurementAggregator()
 	cities := a.ListCities()
 	if len(cities) != 0 {
 		t.Errorf("expected empty aggregator, got %d cities", len(cities))
@@ -159,7 +159,7 @@ func TestNewAggregator(t *testing.T) {
 }
 
 func TestAggregator_AddRecord(t *testing.T) {
-	a := NewAggregator()
+	a := NewMeasurementAggregator()
 	a.AddRecord(Record{station: []byte("Hamburg"), temp: 12.3})
 	a.AddRecord(Record{station: []byte("Hamburg"), temp: 5.0})
 	a.AddRecord(Record{station: []byte("Oslo"), temp: -3.0})
@@ -187,7 +187,7 @@ func TestAggregator_AddRecord(t *testing.T) {
 }
 
 func TestAggregator_ListCities(t *testing.T) {
-	a := NewAggregator()
+	a := NewMeasurementAggregator()
 	//TODO: is it okay to use other mthods for these unitests?
 	a.AddRecord(Record{station: []byte("Hamburg"), temp: 10.0})
 	a.AddRecord(Record{station: []byte("Oslo"), temp: -1.0})
@@ -211,7 +211,7 @@ func TestAggregator_ListCities(t *testing.T) {
 }
 
 func TestAggregator_CalculateMetricsForCity(t *testing.T) {
-	a := NewAggregator()
+	a := NewMeasurementAggregator()
 	a.AddRecord(Record{station: []byte("Hamburg"), temp: 10.0})
 	a.AddRecord(Record{station: []byte("Hamburg"), temp: -2.0})
 	a.AddRecord(Record{station: []byte("Hamburg"), temp: 6.0})
@@ -233,7 +233,7 @@ func TestAggregator_CalculateMetricsForCity(t *testing.T) {
 }
 
 func TestAggregator_CalculateMetricsForCity_UnknownCity(t *testing.T) {
-	a := NewAggregator()
+	a := NewMeasurementAggregator()
 
 	_, err := a.CalculateMetricsForCity("NonExistent")
 	if err == nil {
