@@ -6,6 +6,147 @@ import (
 	"testing"
 )
 
+func TestNextRecordBoundary(t *testing.T) {
+	// indices:        0123 456789 01234
+	//                 0  \n     \n      \n
+	data := "012\n45678\n0123\n"
+	reader := strings.NewReader(data)
+
+	tests := []struct {
+		name         string
+		targetOffset int64
+		want         int64
+	}{
+		{"separator sits at the target offset", 3, 4},
+		{"separator later in the window", 0, 4},
+		{"skips ahead to the next separator", 4, 10},
+		{"last separator reached via EOF read", 14, 15},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := nextRecordBoundary(reader, tt.targetOffset, len(data), '\n')
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %d, want %d", got, tt.want)
+			}
+			// the byte right before the returned boundary must be the separator
+			if got >= 1 && data[got-1] != '\n' {
+				t.Errorf("boundary %d is not immediately after a separator", got)
+			}
+		})
+	}
+}
+
+func TestNextRecordBoundary_SeparatorBeyondBuffer(t *testing.T) {
+	// the only separator is at index 6, but the buffer only covers 3 bytes
+	reader := strings.NewReader("abcdef\n")
+
+	_, err := nextRecordBoundary(reader, 0, 3, '\n')
+	if err == nil {
+		t.Errorf("expected error when separator lies beyond the buffer window, got nil")
+	}
+}
+
+func TestNextRecordBoundary_NoSeparator(t *testing.T) {
+	reader := strings.NewReader("no-separators-here")
+
+	_, err := nextRecordBoundary(reader, 0, 100, '\n')
+	if err == nil {
+		t.Errorf("expected error when no separator is present, got nil")
+	}
+}
+
+func TestNextRecordBoundary_OffsetAtEOF(t *testing.T) {
+	data := "abc\n"
+	reader := strings.NewReader(data)
+
+	// reading at the end of the file yields no data and therefore no separator
+	_, err := nextRecordBoundary(reader, int64(len(data)), 10, '\n')
+	if err == nil {
+		t.Errorf("expected error when reading at EOF, got nil")
+	}
+}
+
+func TestCalculateChunkBoundaries(t *testing.T) {
+	// 30 bytes, a separator at every third byte (indices 2, 5, ... 29)
+	data := strings.Repeat("ab\n", 10)
+	reader := strings.NewReader(data)
+	dataSize := int64(len(data))
+
+	tests := []struct {
+		name      string
+		numChunks int
+		want      []Chunk
+	}{
+		{"single chunk covers the whole file", 1, []Chunk{{0, 30}}},
+		{"two chunks", 2, []Chunk{{0, 18}, {18, 30}}},
+		{"three chunks", 3, []Chunk{{0, 12}, {12, 24}, {24, 30}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CalculateChunkBoundaries(reader, dataSize, len(data), '\n', tt.numChunks)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d chunks, want %d", len(got), len(tt.want))
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("chunk %d: got %+v, want %+v", i, got[i], tt.want[i])
+				}
+			}
+
+			validateChunks(t, got, data, dataSize, '\n')
+		})
+	}
+}
+
+func TestCalculateChunkBoundaries_SeparatorNotFound(t *testing.T) {
+	// no separators at all, so the boundary lookup for the first chunk must fail
+	data := strings.Repeat("x", 100)
+	reader := strings.NewReader(data)
+
+	_, err := CalculateChunkBoundaries(reader, int64(len(data)), 10, '\n', 2)
+	if err == nil {
+		t.Errorf("expected error when a chunk boundary cannot be found, got nil")
+	}
+}
+
+// validateChunks asserts the structural invariants every chunk set must satisfy:
+// full coverage of the file, no gaps or overlaps, and every internal boundary
+// landing immediately after a separator.
+func validateChunks(t *testing.T, chunks []Chunk, data string, dataSize int64, separator byte) {
+	t.Helper()
+
+	if len(chunks) == 0 {
+		t.Fatalf("expected at least one chunk")
+	}
+	if chunks[0].start != 0 {
+		t.Errorf("first chunk must start at 0, got %d", chunks[0].start)
+	}
+	if chunks[len(chunks)-1].end != dataSize {
+		t.Errorf("last chunk must end at dataSize %d, got %d", dataSize, chunks[len(chunks)-1].end)
+	}
+
+	for i, c := range chunks {
+		if i > 0 && c.start != chunks[i-1].end {
+			t.Errorf("chunk %d starts at %d but previous chunk ends at %d (gap or overlap)", i, c.start, chunks[i-1].end)
+		}
+		// every boundary except the final one must sit right after a separator
+		if i < len(chunks)-1 {
+			if c.end < 1 || data[c.end-1] != separator {
+				t.Errorf("chunk %d end %d is not immediately after a separator", i, c.end)
+			}
+		}
+	}
+}
+
 func TestChunkReader_ReadNextChunk(t *testing.T) {
 	reader := strings.NewReader("012\n45678\n0123\n")
 

@@ -11,6 +11,49 @@ import (
 	"strings"
 )
 
+type Chunk struct {
+	start int64
+	end   int64
+}
+
+func CalculateChunkBoundaries(reader io.ReaderAt, dataSize int64, bufferSize int, separator byte, numChunks int) ([]Chunk, error) {
+	chunks := make([]Chunk, numChunks)
+	chunkSize := dataSize / int64(numChunks)
+
+	start := int64(0)
+	for i := range numChunks {
+		end := dataSize
+		if i < numChunks-1 {
+			var err error
+			end, err = nextRecordBoundary(reader, start+chunkSize, bufferSize, separator)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		chunks[i] = Chunk{start: start, end: end}
+		start = end
+	}
+
+	return chunks, nil
+}
+
+// nextRecordBoundary returns the offset just past the first separator at or after targetOffset.
+func nextRecordBoundary(reader io.ReaderAt, targetOffset int64, bufferSize int, separator byte) (int64, error) {
+	peekBuf := make([]byte, bufferSize)
+	n, err := reader.ReadAt(peekBuf, targetOffset)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return 0, fmt.Errorf("failed to read data: %w", err)
+	}
+
+	idx := bytes.IndexByte(peekBuf[:n], separator)
+	if idx == -1 {
+		return 0, fmt.Errorf("separator not found within %d bytes of offset %d", bufferSize, targetOffset)
+	}
+
+	return targetOffset + int64(idx) + 1, nil
+}
+
 type ChunkReader struct {
 	reader     io.ReaderAt
 	offset     int64
