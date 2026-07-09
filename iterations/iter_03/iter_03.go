@@ -2,6 +2,7 @@ package iter03
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -249,6 +250,32 @@ func (a *MeasurementAggregator) CalculateMetricsForCity(city string) (Metrics, e
 	metrics.avg = aggregatedData.sum / float64(aggregatedData.count)
 
 	return metrics, nil
+}
+
+type ResultAggregator struct {
+	allResults map[string]AggregatedMeasurements
+}
+
+func NewResultAggregator() ResultAggregator {
+	allResults := make(map[string]AggregatedMeasurements)
+
+	return ResultAggregator{allResults: allResults}
+}
+
+func (ra *ResultAggregator) AddPartialResults(partialResults map[string]AggregatedMeasurements) {
+	for k, v := range partialResults {
+		currentMeasurements, ok := ra.allResults[k]
+		if !ok { // no previous measurement for the city
+			currentMeasurements = v
+		} else { // there's already previous measuremnts
+			currentMeasurements.min = min(currentMeasurements.min, v.min)
+			currentMeasurements.max = max(currentMeasurements.max, v.max)
+			currentMeasurements.sum += v.sum
+			currentMeasurements.count += v.count
+		}
+
+		ra.allResults[k] = currentMeasurements
+	}
 }
 
 func RoundToOneDecimal(x float64) float64 {

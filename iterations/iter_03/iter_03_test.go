@@ -382,6 +382,102 @@ func TestAggregator_CalculateMetricsForCity_UnknownCity(t *testing.T) {
 	}
 }
 
+func TestNewResultAggregator(t *testing.T) {
+	ra := NewResultAggregator()
+	if ra.allResults == nil {
+		t.Fatal("expected initialized results map, got nil")
+	}
+	if len(ra.allResults) != 0 {
+		t.Errorf("expected empty aggregator, got %d cities", len(ra.allResults))
+	}
+}
+
+func TestResultAggregator_AddPartialResults_NewCities(t *testing.T) {
+	ra := NewResultAggregator()
+
+	ra.AddPartialResults(map[string]AggregatedMeasurements{
+		"Hamburg": {min: 1.0, max: 5.0, sum: 12.0, count: 3},
+		"Oslo":    {min: -4.0, max: 2.0, sum: -2.0, count: 2},
+	})
+
+	assertMeasurements(t, ra.allResults, "Hamburg", AggregatedMeasurements{min: 1.0, max: 5.0, sum: 12.0, count: 3})
+	assertMeasurements(t, ra.allResults, "Oslo", AggregatedMeasurements{min: -4.0, max: 2.0, sum: -2.0, count: 2})
+
+	if len(ra.allResults) != 2 {
+		t.Errorf("expected 2 cities, got %d", len(ra.allResults))
+	}
+}
+
+func TestResultAggregator_AddPartialResults_MergeOverlappingCity(t *testing.T) {
+	ra := NewResultAggregator()
+
+	// two partial results for the same city produced by different workers
+	ra.AddPartialResults(map[string]AggregatedMeasurements{
+		"Hamburg": {min: 3.0, max: 10.0, sum: 20.0, count: 4},
+	})
+	ra.AddPartialResults(map[string]AggregatedMeasurements{
+		"Hamburg": {min: -1.0, max: 8.0, sum: 15.0, count: 3},
+	})
+
+	// min/max take the extremes, sum and count accumulate
+	assertMeasurements(t, ra.allResults, "Hamburg", AggregatedMeasurements{min: -1.0, max: 10.0, sum: 35.0, count: 7})
+
+	if len(ra.allResults) != 1 {
+		t.Errorf("expected 1 city after merging, got %d", len(ra.allResults))
+	}
+}
+
+func TestResultAggregator_AddPartialResults_MixedMerge(t *testing.T) {
+	ra := NewResultAggregator()
+
+	ra.AddPartialResults(map[string]AggregatedMeasurements{
+		"Hamburg": {min: 3.0, max: 10.0, sum: 20.0, count: 4},
+		"Oslo":    {min: -4.0, max: 2.0, sum: -2.0, count: 2},
+	})
+	// second batch overlaps on Hamburg and introduces a brand new city
+	ra.AddPartialResults(map[string]AggregatedMeasurements{
+		"Hamburg": {min: 5.0, max: 12.0, sum: 30.0, count: 3},
+		"Rome":    {min: 15.0, max: 25.0, sum: 60.0, count: 3},
+	})
+
+	assertMeasurements(t, ra.allResults, "Hamburg", AggregatedMeasurements{min: 3.0, max: 12.0, sum: 50.0, count: 7})
+	assertMeasurements(t, ra.allResults, "Oslo", AggregatedMeasurements{min: -4.0, max: 2.0, sum: -2.0, count: 2})
+	assertMeasurements(t, ra.allResults, "Rome", AggregatedMeasurements{min: 15.0, max: 25.0, sum: 60.0, count: 3})
+
+	if len(ra.allResults) != 3 {
+		t.Errorf("expected 3 cities, got %d", len(ra.allResults))
+	}
+}
+
+func TestResultAggregator_AddPartialResults_Empty(t *testing.T) {
+	ra := NewResultAggregator()
+	ra.AddPartialResults(map[string]AggregatedMeasurements{
+		"Hamburg": {min: 1.0, max: 5.0, sum: 6.0, count: 2},
+	})
+
+	// merging an empty partial result must leave existing data untouched
+	ra.AddPartialResults(map[string]AggregatedMeasurements{})
+
+	assertMeasurements(t, ra.allResults, "Hamburg", AggregatedMeasurements{min: 1.0, max: 5.0, sum: 6.0, count: 2})
+	if len(ra.allResults) != 1 {
+		t.Errorf("expected 1 city, got %d", len(ra.allResults))
+	}
+}
+
+// assertMeasurements checks that a city exists in the results map and its
+// aggregated measurements match the expected values exactly.
+func assertMeasurements(t *testing.T, results map[string]AggregatedMeasurements, city string, want AggregatedMeasurements) {
+	t.Helper()
+
+	got, ok := results[city]
+	if !ok {
+		t.Fatalf("expected city %q in results, but it is missing", city)
+	}
+	if got != want {
+		t.Errorf("city %q: got %+v, want %+v", city, got, want)
+	}
+}
+
 func TestFormatMetrics(t *testing.T) {
 	expected := "Budapest=-13.2/21.4/41.0"
 	got := FormatMetrics("Budapest", Metrics{min: -13.245, avg: 21.35, max: 41.0})
