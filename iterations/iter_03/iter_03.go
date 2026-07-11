@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 type Chunk struct {
@@ -182,7 +183,7 @@ func ParseRecord(rawRecord []byte) (Record, error) {
 
 	record.station = rawRecord[:separatorIdx]
 
-	temp, err := strconv.ParseFloat(string(rawRecord[separatorIdx+1:len(rawRecord)-1]), 64)
+	temp, err := strconv.ParseFloat(string(rawRecord[separatorIdx+1:]), 64)
 	if err != nil {
 		return record, fmt.Errorf("failed to convert temperature to float in record: %s", rawRecord)
 	}
@@ -285,6 +286,31 @@ func (ra *ResultAggregator) AddPartialResults(partialResults map[string]Aggregat
 	}
 }
 
+func (ra *ResultAggregator) ListCities() []string {
+	cities := make([]string, 0, len(ra.allResults))
+
+	for k := range ra.allResults {
+		cities = append(cities, k)
+	}
+
+	return cities
+}
+
+func (ra *ResultAggregator) CalculateMetricsForCity(city string) (Metrics, error) {
+	var metrics Metrics
+
+	aggregatedData, ok := ra.allResults[city]
+	if !ok {
+		return metrics, fmt.Errorf("city not found: %s", city)
+	}
+
+	metrics.max = aggregatedData.max
+	metrics.min = aggregatedData.min
+	metrics.avg = aggregatedData.sum / float64(aggregatedData.count)
+
+	return metrics, nil
+}
+
 func RoundToOneDecimal(x float64) float64 {
 	return math.Floor(x*10.0+0.5) / 10.0
 }
@@ -297,28 +323,15 @@ func FormatMetrics(city string, metrics Metrics) string {
 	return fmt.Sprintf("%s=%.1f/%.1f/%.1f", city, min, avg, max)
 }
 
-func Execute(inputPath string, outputPath string, bufferSize int) error {
-
-	inputFile, err := os.Open(inputPath)
-	if err != nil {
-		return fmt.Errorf("failed to open file at %s: %w", inputPath, err)
-	}
-	defer inputFile.Close()
-
-	outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
-	if err != nil {
-		return fmt.Errorf("failed to open output file: %w", err)
-	}
-	defer outputFile.Close()
-
-	reader := NewChunkReader(inputFile, bufferSize, '\n')
+func ProcessChunk(reader io.ReaderAt, chunk Chunk, bufferSize int) (*MeasurementAggregator, error) {
+	chunkReader := NewChunkReader(reader, chunk, bufferSize, '\n')
 	aggregator := NewMeasurementAggregator()
 
 	// read and aggregate data
-	for reader.HasNext() {
-		chunk, err := reader.ReadNextChunk()
+	for chunkReader.HasNext() {
+		chunk, err := chunkReader.ReadNextChunk()
 		if err != nil {
-			return fmt.Errorf("failed reading chunk: %w", err)
+			return nil, fmt.Errorf("failed reading chunk: %w", err)
 		}
 
 		recordGenerator := NewRecordGenerator(chunk, '\n')
@@ -327,21 +340,87 @@ func Execute(inputPath string, outputPath string, bufferSize int) error {
 
 			rawRec, err := recordGenerator.ReadNextRecord()
 			if err != nil {
-				return fmt.Errorf("failed reading record from chunk: %w", err)
+				return nil, fmt.Errorf("failed reading record from chunk: %w", err)
 			}
 
 			record, err := ParseRecord(rawRec)
 			if err != nil {
-				return fmt.Errorf("failed parsing record '%s': %w", rawRec, err)
+				return nil, fmt.Errorf("failed parsing record '%s': %w", rawRec, err)
 			}
 
 			aggregator.AddRecord(record)
 		}
 	}
 
+	return &aggregator, nil
+}
+
+func Execute(inputPath string, outputPath string, bufferSize int, numWorkers int) error {
+
+	inputFile, err := os.Open(inputPath)
+	if err != nil {
+		return fmt.Errorf("failed to open file at %s: %w", inputPath, err)
+	}
+	defer inputFile.Close()
+
+	info, err := inputFile.Stat()
+	if err != nil {
+		panic(err)
+	}
+	fileSize := info.Size()
+
+	chunks, err := CalculateChunkBoundaries(inputFile, fileSize, 128, '\n', numWorkers)
+	if err != nil {
+		return fmt.Errorf("failed to creat chunks from file: %w", err)
+	}
+
+	type partialResult struct {
+		res *MeasurementAggregator
+		err error
+	}
+	resultsChan := make(chan partialResult, len(chunks))
+	var wg sync.WaitGroup
+
+	for _, chunk := range chunks {
+		wg.Add(1)
+
+		go func(c Chunk) {
+			defer wg.Done()
+			res, err := ProcessChunk(inputFile, c, bufferSize)
+
+			resultsChan <- partialResult{res: res, err: err}
+		}(chunk)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultsChan)
+	}()
+
+	errCount := 0
+	resultAgg := NewResultAggregator()
+
+	for msg := range resultsChan {
+		// Unpack and check the error first
+		if msg.err != nil {
+			fmt.Printf("Worker error: %v\n", msg.err)
+			errCount++
+			continue // Skip aggregating this failed record
+		}
+
+		// Because we checked the error, it's now safe to use msg.res
+		resultAgg.AddPartialResults(msg.res.cityMeasurements)
+	}
+
+	outputFile, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	if err != nil {
+		return fmt.Errorf("failed to open output file: %w", err)
+	}
+	defer outputFile.Close()
+
 	// write output
 
-	cities := aggregator.ListCities()
+	cities := resultAgg.ListCities()
 	slices.Sort(cities)
 
 	var sb strings.Builder
@@ -349,7 +428,7 @@ func Execute(inputPath string, outputPath string, bufferSize int) error {
 	sb.WriteString("{")
 
 	for i, city := range cities {
-		metrics, err := aggregator.CalculateMetricsForCity(city)
+		metrics, err := resultAgg.CalculateMetricsForCity(city)
 		if err != nil {
 			return fmt.Errorf("failed to calculate metrics for city '%s': %w", city, err)
 		}
