@@ -58,16 +58,18 @@ func nextRecordBoundary(reader io.ReaderAt, targetOffset int64, bufferSize int, 
 type ChunkReader struct {
 	reader     io.ReaderAt
 	offset     int64
+	chunkEnd   int64
 	bufferSize int
 	hasNext    bool
 	separator  byte
 }
 
 // bufferSize must be greater than record size
-func NewChunkReader(reader io.ReaderAt, bufferSize int, separator byte) *ChunkReader {
+func NewChunkReader(reader io.ReaderAt, chunk Chunk, bufferSize int, separator byte) *ChunkReader {
 	return &ChunkReader{
 		reader:     reader,
-		offset:     0,
+		offset:     chunk.start,
+		chunkEnd:   chunk.end,
 		bufferSize: bufferSize,
 		separator:  separator,
 		hasNext:    true,
@@ -79,7 +81,8 @@ func (chr *ChunkReader) HasNext() bool {
 }
 
 func (chr *ChunkReader) ReadNextChunk() ([]byte, error) {
-	buffer := make([]byte, chr.bufferSize)
+	readLimit := min(chr.bufferSize, int(chr.chunkEnd-chr.offset))
+	buffer := make([]byte, readLimit)
 
 	n, err := chr.reader.ReadAt(buffer, chr.offset)
 
@@ -112,6 +115,10 @@ func (chr *ChunkReader) ReadNextChunk() ([]byte, error) {
 
 	adjustedChunk := dataRead[:lastSeparator+1]
 	chr.offset += int64(lastSeparator + 1)
+
+	if chr.offset >= chr.chunkEnd {
+		chr.hasNext = false
+	}
 
 	return adjustedChunk, nil
 }
