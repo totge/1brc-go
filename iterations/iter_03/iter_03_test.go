@@ -148,22 +148,28 @@ func validateChunks(t *testing.T, chunks []Chunk, data string, dataSize int64, s
 }
 
 func TestChunkReader_ReadNextChunk(t *testing.T) {
-	reader := strings.NewReader("012\n45678\n0123\n")
+	// indices: 012\n=0-3, 45678\n=4-9, 0123\n=10-14, 5\n=15-16, 78\n=17-19, 9\n=20-21
+	reader := strings.NewReader("012\n45678\n0123\n5\n78\n9\n")
 
-	chunkReader := NewChunkReader(reader, 6, '\n')
+	// only read the middle of the file: the chunk covers "45678\n0123\n5\n"
+	chunk := Chunk{start: 4, end: 17}
+	chunkReader := NewChunkReader(reader, chunk, 6, '\n')
 
 	tests := []struct {
 		name          string
 		expectData    string
 		expectHasNext bool
 	}{
-		{"First", "012\n", true},
-		{"Second", "45678\n", true},
-		{"Last", "0123\n", false},
+		{"First", "45678\n", true},
+		{"Second", "0123\n", true},
+		{"Last", "5\n", false},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			if !chunkReader.HasNext() {
+				t.Fatalf("expected HasNext() to be true before reading %q", testCase.expectData)
+			}
 			got, err := chunkReader.ReadNextChunk()
 			if err != nil {
 				t.Fatalf("unxpected failure when reading data: %v", err)
@@ -236,6 +242,8 @@ func TestRecordGenerator_ReadNextRecord_NoSeparator(t *testing.T) {
 }
 
 func TestParseRecord(t *testing.T) {
+	// records arrive from RecordGenerator without the trailing separator, so
+	// ParseRecord must not assume one is present.
 	tests := []struct {
 		name    string
 		input   []byte
@@ -244,29 +252,35 @@ func TestParseRecord(t *testing.T) {
 	}{
 		{
 			name:    "valid record",
-			input:   []byte("Hamburg;12.3\n"),
+			input:   []byte("Hamburg;12.3"),
 			want:    Record{station: []byte("Hamburg"), temp: 12.3},
 			wantErr: false,
 		},
 		{
 			name:    "negative temperature",
-			input:   []byte("Oslo;-5.5\n"),
+			input:   []byte("Oslo;-5.5"),
 			want:    Record{station: []byte("Oslo"), temp: -5.5},
 			wantErr: false,
 		},
 		{
+			name:    "single fractional digit is preserved",
+			input:   []byte("Rome;9.9"),
+			want:    Record{station: []byte("Rome"), temp: 9.9},
+			wantErr: false,
+		},
+		{
 			name:    "missing separator",
-			input:   []byte("Hamburg12.3\n"),
+			input:   []byte("Hamburg12.3"),
 			wantErr: true,
 		},
 		{
 			name:    "invalid float",
-			input:   []byte("Hamburg;notafloat\n"),
+			input:   []byte("Hamburg;notafloat"),
 			wantErr: true,
 		},
 		{
 			name:    "empty temperature",
-			input:   []byte("Hamburg;\n"),
+			input:   []byte("Hamburg;"),
 			wantErr: true,
 		},
 	}
@@ -288,6 +302,41 @@ func TestParseRecord(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestRecordGenerator_ParseRecord_PreservesDecimals guards the real pipeline:
+// records leave RecordGenerator without a trailing separator, and ParseRecord
+// must parse the temperature in full. A regression here silently truncated the
+// last fractional digit (e.g. 12.3 -> 12.0).
+func TestRecordGenerator_ParseRecord_PreservesDecimals(t *testing.T) {
+	chunk := []byte("Hamburg;12.3\nOslo;-5.5\nRome;9.9\n")
+
+	want := []Record{
+		{station: []byte("Hamburg"), temp: 12.3},
+		{station: []byte("Oslo"), temp: -5.5},
+		{station: []byte("Rome"), temp: 9.9},
+	}
+
+	rg := NewRecordGenerator(chunk, '\n')
+
+	for i := 0; rg.HasNext(); i++ {
+		rawRec, err := rg.ReadNextRecord()
+		if err != nil {
+			t.Fatalf("unexpected error reading record %d: %v", i, err)
+		}
+
+		got, err := ParseRecord(rawRec)
+		if err != nil {
+			t.Fatalf("unexpected error parsing record %q: %v", rawRec, err)
+		}
+
+		if !bytes.Equal(got.station, want[i].station) {
+			t.Errorf("record %d: got station %q, want %q", i, got.station, want[i].station)
+		}
+		if got.temp != want[i].temp {
+			t.Errorf("record %d: got temp %v, want %v (decimal part lost?)", i, got.temp, want[i].temp)
+		}
 	}
 }
 
@@ -368,6 +417,40 @@ func TestAggregator_CalculateMetricsForCity(t *testing.T) {
 		t.Errorf("got max %v, want 10.0", metrics.max)
 	}
 	expectedAvg := 14.0 / 3.0
+	if metrics.avg != expectedAvg {
+		t.Errorf("got avg %v, want %v", metrics.avg, expectedAvg)
+	}
+}
+
+func TestReasultAggregator_CalculateMetricsForCity(t *testing.T) {
+	a1 := NewMeasurementAggregator()
+	a1.AddRecord(Record{station: []byte("Hamburg"), temp: 10.1})
+	a1.AddRecord(Record{station: []byte("Hamburg"), temp: -2.4})
+	a1.AddRecord(Record{station: []byte("Hamburg"), temp: 6.6})
+	// count=3, sum=14.3, min=-2.4, max=10.1
+
+	a2 := NewMeasurementAggregator()
+	a2.AddRecord(Record{station: []byte("Hamburg"), temp: -3.0})
+	a2.AddRecord(Record{station: []byte("Hamburg"), temp: 7.2})
+	// count=2, sum=4.2, min=-3.0, max=7.2
+	a2.AddRecord(Record{station: []byte("Oslo"), temp: 7.2})
+
+	resAgg := NewResultAggregator()
+
+	resAgg.AddPartialResults(a1.cityMeasurements)
+	resAgg.AddPartialResults(a2.cityMeasurements)
+
+	metrics, err := resAgg.CalculateMetricsForCity("Hamburg")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if metrics.min != -3.0 {
+		t.Errorf("got min %v, want -2.0", metrics.min)
+	}
+	if metrics.max != 10.1 {
+		t.Errorf("got max %v, want 10.0", metrics.max)
+	}
+	expectedAvg := 18.5 / 5.0
 	if metrics.avg != expectedAvg {
 		t.Errorf("got avg %v, want %v", metrics.avg, expectedAvg)
 	}
