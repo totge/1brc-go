@@ -4,6 +4,7 @@ import (
 	"1brc-go/iterations/base"
 	iter01 "1brc-go/iterations/iter_01"
 	iter02 "1brc-go/iterations/iter_02"
+	iter03 "1brc-go/iterations/iter_03"
 	"testing"
 )
 
@@ -32,4 +33,23 @@ func TestIter02(t *testing.T) {
 		inputPath, outputPath := resolveFileSize(*input)
 		iter02.Execute(inputPath, outputPath, 8*1024*1024)
 	})
+}
+
+func TestIter03(t *testing.T) {
+	// Measure("iter_03_p30", *profile, func() {
+	// 	inputPath, outputPath := resolveFileSize(*input)
+	// 	iter03.Execute(inputPath, outputPath, 10*1024*1024, 30)
+	// })
+	// Measure("iter_03_p40", *profile, func() {
+	// 	inputPath, outputPath := resolveFileSize(*input)
+	// 	iter03.Execute(inputPath, outputPath, 10*1024*1024, 40)
+	// })
+	Measure("iter_03_p50", *profile, func() {
+		inputPath, outputPath := resolveFileSize(*input)
+		iter03.Execute(inputPath, outputPath, 10*1024*1024, 50)
+	})
+	// Measure("iter_03_p60", *profile, func() {
+	// 	inputPath, outputPath := resolveFileSize(*input)
+	// 	iter03.Execute(inputPath, outputPath, 10*1024*1024, 60)
+	// })
 }
