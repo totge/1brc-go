@@ -46,3 +46,17 @@ Significant improvement from ~80s going down to the 11-12s range consistently.
 Based on the CPU profile the main proportions did not change (which was expected as there was no major change in the implementation). The biggest bottnecks seem to be map operations (byte slice to string conversion, mapaccess, mapassign), record parsing (float conversion, byte indexing), record reading (byte indexing).
 
 The next iteration will involve a refactor to simplify the added complexity by concurrency, and use the standard library instead of handrolled solutions.
+
+### 5. Refactor single buffer per goroutine
+#### Description 
+The main goal in this iteraton was not to address the biggest bottlenecks but rather to simplify the code and rely on standard library utilities like `io.SectionReader` that can reduce the handrolled lower level code while keeping the same performance as before.
+
+The only major change in terms or the program logic is that now the `RecordGenerator` type does the the entire buffered data reading and returning the measurement records one by one. And this type has a single buffer that is used throughout its lifetime so no reallocation is needs.
+
+#### Results
+➜ [iter_04_p65    ] Time: 11.131470667s | Mem: 10026.23 MB | Profiled: false
+
+Surprisingly to somne extent the only allocating one buffer per go routine did not have a significant effect on the performance.
+
+#### Conclusions
+Based on the profile file, the most significant bottleneck are the map operations, so the next iteration should target optimizing that part.
