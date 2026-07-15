@@ -165,11 +165,11 @@ type AggregatedMeasurements struct {
 }
 
 type MeasurementAggregator struct {
-	cityMeasurements map[string]AggregatedMeasurements
+	cityMeasurements map[string]*AggregatedMeasurements
 }
 
 func NewMeasurementAggregator() MeasurementAggregator {
-	cityMeasurements := make(map[string]AggregatedMeasurements)
+	cityMeasurements := make(map[string]*AggregatedMeasurements)
 
 	return MeasurementAggregator{cityMeasurements: cityMeasurements}
 }
@@ -179,44 +179,45 @@ func (a *MeasurementAggregator) AddRecord(record Record) {
 	aggMeasurement, ok := a.cityMeasurements[string(record.station)]
 
 	if !ok { // no previous measurement for the city
-		aggMeasurement.min = record.temp
-		aggMeasurement.max = record.temp
-		aggMeasurement.sum = record.temp
-		aggMeasurement.count = 1
-	} else { // there's already previous measuremnts
+		aggMeasurement := AggregatedMeasurements{
+			min:   record.temp,
+			max:   record.temp,
+			sum:   record.temp,
+			count: 1,
+		}
+
+		a.cityMeasurements[string(record.station)] = &aggMeasurement
+
+	} else { // there's already previous measurements, modify in place
 		aggMeasurement.min = min(aggMeasurement.min, record.temp)
 		aggMeasurement.max = max(aggMeasurement.max, record.temp)
 		aggMeasurement.sum += record.temp
 		aggMeasurement.count++
 	}
 
-	a.cityMeasurements[string(record.station)] = aggMeasurement
-
 }
 
 type ResultAggregator struct {
-	allResults map[string]AggregatedMeasurements
+	allResults map[string]*AggregatedMeasurements
 }
 
 func NewResultAggregator() ResultAggregator {
-	allResults := make(map[string]AggregatedMeasurements)
+	allResults := make(map[string]*AggregatedMeasurements)
 
 	return ResultAggregator{allResults: allResults}
 }
 
-func (ra *ResultAggregator) AddPartialResults(partialResults map[string]AggregatedMeasurements) {
+func (ra *ResultAggregator) AddPartialResults(partialResults map[string]*AggregatedMeasurements) {
 	for k, v := range partialResults {
 		currentMeasurements, ok := ra.allResults[k]
-		if !ok { // no previous measurement for the city
-			currentMeasurements = v
-		} else { // there's already previous measuremnts
+		if !ok { // no previous measurement for the city, store the pointer directly
+			ra.allResults[k] = v
+		} else { // there's already previous measuremnts, modify in place
 			currentMeasurements.min = min(currentMeasurements.min, v.min)
 			currentMeasurements.max = max(currentMeasurements.max, v.max)
 			currentMeasurements.sum += v.sum
 			currentMeasurements.count += v.count
 		}
-
-		ra.allResults[k] = currentMeasurements
 	}
 }
 
