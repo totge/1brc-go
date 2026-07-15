@@ -13,19 +13,19 @@ import (
 	"sync"
 )
 
-type Chunk struct {
-	start int64
-	end   int64
+type Section struct {
+	start  int64
+	length int64
 }
 
-func CalculateChunkBoundaries(reader io.ReaderAt, dataSize int64, bufferSize int, separator byte, numChunks int) ([]Chunk, error) {
-	chunks := make([]Chunk, numChunks)
-	chunkSize := dataSize / int64(numChunks)
+func CalculateSections(reader io.ReaderAt, dataSize int64, bufferSize int, separator byte, numSections int) ([]Section, error) {
+	chunks := make([]Section, numSections)
+	chunkSize := dataSize / int64(numSections)
 
 	start := int64(0)
-	for i := range numChunks {
+	for i := range numSections {
 		end := dataSize
-		if i < numChunks-1 {
+		if i < numSections-1 {
 			var err error
 			end, err = nextRecordBoundary(reader, start+chunkSize, bufferSize, separator)
 			if err != nil {
@@ -33,7 +33,7 @@ func CalculateChunkBoundaries(reader io.ReaderAt, dataSize int64, bufferSize int
 			}
 		}
 
-		chunks[i] = Chunk{start: start, end: end}
+		chunks[i] = Section{start: start, length: end - start}
 		start = end
 	}
 
@@ -56,116 +56,75 @@ func nextRecordBoundary(reader io.ReaderAt, targetOffset int64, bufferSize int, 
 	return targetOffset + int64(idx) + 1, nil
 }
 
-type ChunkReader struct {
-	reader     io.ReaderAt
-	offset     int64
-	chunkEnd   int64
-	bufferSize int
-	hasNext    bool
-	separator  byte
+type RecordGenerator struct {
+	reader        *io.SectionReader
+	sectionOffset int64
+	buffer        []byte
+	safeBuffer    []byte
+	separator     byte
 }
 
 // bufferSize must be greater than record size
-func NewChunkReader(reader io.ReaderAt, chunk Chunk, bufferSize int, separator byte) *ChunkReader {
-	return &ChunkReader{
-		reader:     reader,
-		offset:     chunk.start,
-		chunkEnd:   chunk.end,
-		bufferSize: bufferSize,
-		separator:  separator,
-		hasNext:    true,
+func NewRecordGenerator(reader io.ReaderAt, section Section, bufferSize int, separator byte) *RecordGenerator {
+	sectionReader := io.NewSectionReader(reader, section.start, section.length)
+	buffer := make([]byte, bufferSize)
+	return &RecordGenerator{
+		reader:        sectionReader,
+		sectionOffset: 0,
+		buffer:        buffer,
+		separator:     separator,
 	}
 }
 
-func (chr *ChunkReader) HasNext() bool {
-	return chr.hasNext
-}
+func (rg *RecordGenerator) readNextChunk() error {
 
-func (chr *ChunkReader) ReadNextChunk() ([]byte, error) {
-	readLimit := min(chr.bufferSize, int(chr.chunkEnd-chr.offset))
-	buffer := make([]byte, readLimit)
-
-	n, err := chr.reader.ReadAt(buffer, chr.offset)
+	n, err := rg.reader.ReadAt(rg.buffer, rg.sectionOffset)
 
 	// handle read errors
 	if err != nil && err != io.EOF {
-		return nil, fmt.Errorf("failed to read data chunk: %w", err)
-	}
-	// handle reaching end of file
-	if err == io.EOF {
-		chr.hasNext = false
+		return fmt.Errorf("failed to read data chunk: %w", err)
 	}
 
-	dataRead := buffer[:n]
-
-	// track the last recors separator in the buffer
-	lastSeparator := -1
-
-	// iterate backwards from the end of data read
-	for i := len(dataRead) - 1; i >= 0; i-- {
-		if dataRead[i] == chr.separator {
-			lastSeparator = i
-			break
-		}
+	if n == 0 {
+		return io.EOF
 	}
+
+	dataRead := rg.buffer[:n]
+
+	// adjust end to last record end
+	lastSeparator := bytes.LastIndexByte(dataRead, rg.separator)
 
 	// no record separator found -> should never happen
 	if lastSeparator == -1 {
-		return nil, fmt.Errorf("no separator found in the data chunk.")
+		return fmt.Errorf("no separator found in the data chunk.")
 	}
 
-	adjustedChunk := dataRead[:lastSeparator+1]
-	chr.offset += int64(lastSeparator + 1)
+	rg.safeBuffer = dataRead[:lastSeparator+1]
+	rg.sectionOffset += int64(lastSeparator + 1)
 
-	if chr.offset >= chr.chunkEnd {
-		chr.hasNext = false
-	}
-
-	return adjustedChunk, nil
+	return nil
 }
 
-type RecordGenerator struct {
-	chunk     []byte
-	offset    int
-	separator byte
-	hasNext   bool
-}
+func (rg *RecordGenerator) ReadRecord() ([]byte, error) {
 
-func NewRecordGenerator(chunk []byte, separator byte) *RecordGenerator {
-	return &RecordGenerator{
-		chunk:     chunk,
-		offset:    0,
-		separator: separator,
-		hasNext:   true,
+	// refill buffer if needed
+	if len(rg.safeBuffer) == 0 || rg.safeBuffer == nil {
+		err := rg.readNextChunk()
+		if err != nil {
+			return nil, err
+		}
 	}
-}
+	// find next record end
+	idx := bytes.IndexByte(rg.safeBuffer, rg.separator)
 
-func (rg *RecordGenerator) ReadNextRecord() ([]byte, error) {
-
-	recordStart := rg.offset
-	relativeEnd := bytes.Index(rg.chunk[rg.offset:], []byte{rg.separator})
-
-	// handle if separator not found
-	if relativeEnd == -1 {
-		return nil, fmt.Errorf("failed to find separator in chunk")
+	if idx == -1 {
+		return nil, fmt.Errorf("no record separator found in buffer")
 	}
 
-	// bytes.Index returns a position relative to the rg.chunk[rg.offset:] slice,
-	// so it must be shifted back by rg.offset to index into rg.chunk itself
-	recordEnd := rg.offset + relativeEnd
-	// handle reaching end of chunk
-	if recordEnd+1 == len(rg.chunk) {
-		rg.hasNext = false
-	}
+	record := rg.safeBuffer[:idx]
+	rg.safeBuffer = rg.safeBuffer[idx+1:]
 
-	// updating offset
-	rg.offset = recordEnd + 1
-
-	return rg.chunk[recordStart:recordEnd], nil
-}
-
-func (rg *RecordGenerator) HasNext() bool {
-	return rg.hasNext
+	return record, nil
 }
 
 type Record struct {
@@ -176,7 +135,7 @@ type Record struct {
 func ParseRecord(rawRecord []byte) (Record, error) {
 	var record Record
 
-	separatorIdx := bytes.Index(rawRecord, []byte(";"))
+	separatorIdx := bytes.IndexByte(rawRecord, ';')
 	if separatorIdx == -1 {
 		return record, fmt.Errorf("separator ';' not found in record: %s", rawRecord)
 	}
@@ -185,7 +144,7 @@ func ParseRecord(rawRecord []byte) (Record, error) {
 
 	temp, err := strconv.ParseFloat(string(rawRecord[separatorIdx+1:]), 64)
 	if err != nil {
-		return record, fmt.Errorf("failed to convert temperature to float in record: %s", rawRecord)
+		return record, fmt.Errorf("failed to convert temperature to float: %s in record: %s", rawRecord[separatorIdx+1:], rawRecord)
 	}
 	record.temp = temp
 
@@ -233,31 +192,6 @@ func (a *MeasurementAggregator) AddRecord(record Record) {
 
 	a.cityMeasurements[string(record.station)] = aggMeasurement
 
-}
-
-func (a *MeasurementAggregator) ListCities() []string {
-	cities := make([]string, 0, len(a.cityMeasurements))
-
-	for k := range a.cityMeasurements {
-		cities = append(cities, k)
-	}
-
-	return cities
-}
-
-func (a *MeasurementAggregator) CalculateMetricsForCity(city string) (Metrics, error) {
-	var metrics Metrics
-
-	aggregatedData, ok := a.cityMeasurements[city]
-	if !ok {
-		return metrics, fmt.Errorf("city not found: %s", city)
-	}
-
-	metrics.max = aggregatedData.max
-	metrics.min = aggregatedData.min
-	metrics.avg = aggregatedData.sum / float64(aggregatedData.count)
-
-	return metrics, nil
 }
 
 type ResultAggregator struct {
@@ -323,33 +257,28 @@ func FormatMetrics(city string, metrics Metrics) string {
 	return fmt.Sprintf("%s=%.1f/%.1f/%.1f", city, min, avg, max)
 }
 
-func ProcessChunk(reader io.ReaderAt, chunk Chunk, bufferSize int) (*MeasurementAggregator, error) {
-	chunkReader := NewChunkReader(reader, chunk, bufferSize, '\n')
+func ProcessSection(reader io.ReaderAt, chunk Section, bufferSize int) (*MeasurementAggregator, error) {
+	recordGenerator := NewRecordGenerator(reader, chunk, bufferSize, '\n')
 	aggregator := NewMeasurementAggregator()
 
 	// read and aggregate data
-	for chunkReader.HasNext() {
-		chunk, err := chunkReader.ReadNextChunk()
+	for {
+		rawRec, err := recordGenerator.ReadRecord()
 		if err != nil {
-			return nil, fmt.Errorf("failed reading chunk: %w", err)
-		}
-
-		recordGenerator := NewRecordGenerator(chunk, '\n')
-
-		for recordGenerator.HasNext() {
-
-			rawRec, err := recordGenerator.ReadNextRecord()
-			if err != nil {
-				return nil, fmt.Errorf("failed reading record from chunk: %w", err)
+			if err == io.EOF {
+				break
 			}
 
-			record, err := ParseRecord(rawRec)
-			if err != nil {
-				return nil, fmt.Errorf("failed parsing record '%s': %w", rawRec, err)
-			}
-
-			aggregator.AddRecord(record)
+			return nil, fmt.Errorf("failed reading record: %w", err)
 		}
+
+		record, err := ParseRecord(rawRec)
+		if err != nil {
+			return nil, fmt.Errorf("failed parsing record '%s': %w", rawRec, err)
+		}
+
+		aggregator.AddRecord(record)
+
 	}
 
 	return &aggregator, nil
@@ -369,7 +298,7 @@ func Execute(inputPath string, outputPath string, bufferSize int, numWorkers int
 	}
 	fileSize := info.Size()
 
-	chunks, err := CalculateChunkBoundaries(inputFile, fileSize, 128, '\n', numWorkers)
+	chunks, err := CalculateSections(inputFile, fileSize, 128, '\n', numWorkers)
 	if err != nil {
 		return fmt.Errorf("failed to creat chunks from file: %w", err)
 	}
@@ -384,9 +313,9 @@ func Execute(inputPath string, outputPath string, bufferSize int, numWorkers int
 	for _, chunk := range chunks {
 		wg.Add(1)
 
-		go func(c Chunk) {
+		go func(c Section) {
 			defer wg.Done()
-			res, err := ProcessChunk(inputFile, c, bufferSize)
+			res, err := ProcessSection(inputFile, c, bufferSize)
 
 			resultsChan <- partialResult{res: res, err: err}
 		}(chunk)
