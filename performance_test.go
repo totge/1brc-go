@@ -7,6 +7,7 @@ import (
 	iter03 "1brc-go/iterations/iter_03"
 	iter04 "1brc-go/iterations/iter_04"
 	iter05 "1brc-go/iterations/iter_05"
+	iter06 "1brc-go/iterations/iter_06"
 	"testing"
 )
 
@@ -76,17 +77,10 @@ func TestIter05(t *testing.T) {
 		inputPath, outputPath := resolveFileSize(*input)
 		iter05.Execute(inputPath, outputPath, 10*1024*1024, 50)
 	})
-	Measure("iter_05_p10", *profile, func() {
+}
+func TestIter06(t *testing.T) {
+	Measure("iter_06_p50", *profile, func() {
 		inputPath, outputPath := resolveFileSize(*input)
-		iter05.Execute(inputPath, outputPath, 10*1024*1024, 10)
+		iter06.Execute(inputPath, outputPath, 10*1024*1024, 50)
 	})
-	Measure("iter_05_p14", *profile, func() {
-		inputPath, outputPath := resolveFileSize(*input)
-		iter05.Execute(inputPath, outputPath, 10*1024*1024, 14)
-	})
-	Measure("iter_05_p12", *profile, func() {
-		inputPath, outputPath := resolveFileSize(*input)
-		iter05.Execute(inputPath, outputPath, 10*1024*1024, 12)
-	})
-
 }
