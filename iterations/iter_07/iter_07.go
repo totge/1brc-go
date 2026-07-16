@@ -128,7 +128,7 @@ func (rg *RecordGenerator) ReadRecord() ([]byte, error) {
 
 type Record struct {
 	station []byte
-	temp    float64
+	temp    int
 }
 
 func ParseRecord(rawRecord []byte) (Record, error) {
@@ -154,35 +154,29 @@ func ParseRecord(rawRecord []byte) (Record, error) {
 // temperature -100 < t < 100
 // 1 decimal precision, there is always one and only one decimal place number
 // decimal are separated by . from the integer part
-func parseTemperature(temp []byte) (float64, error) {
+// it will return the 10x the measurement as an int
+func parseTemperature(temp []byte) (int, error) {
 	// shortest eg 1.1 longest eg -23.5
 	if len(temp) < 3 || len(temp) > 5 {
 		return 0.0, fmt.Errorf("unexpected length (%d) for temperature data: %s", len(temp), temp)
 	}
 
-	sign := 1.0
-	result := 0.0
+	sign := 1
+	result := 0
 
 	// handle negaitive sign
 	if temp[0] == '-' {
-		sign = -1.0
+		sign = -1
 		temp = temp[1:]
 	}
 
-	// int part
-	intPart := 0
 	if len(temp) == 4 {
-		intPart += 10*(int(temp[0]-'0')) + int(temp[1]-'0')
+		result = 100*(int(temp[0]-'0')) + 10*(int(temp[1]-'0')) + int(temp[3]-'0')
 	} else if len(temp) == 3 {
-		intPart += int(temp[0] - '0')
+		result = 10*(int(temp[0]-'0')) + int(temp[2]-'0')
 	} else {
-		return 0.0, fmt.Errorf("unexpected length (%d) for temperature data: %s", len(temp), temp)
+		return 0, fmt.Errorf("unexpected length (%d) for temperature data: %s", len(temp), temp)
 	}
-
-	result += float64(intPart)
-
-	// decimal part
-	result += (float64(temp[len(temp)-1]-'0') / 10.0)
 
 	return sign * result, nil
 }
@@ -194,9 +188,9 @@ type Metrics struct {
 }
 
 type AggregatedMeasurements struct {
-	min   float64
-	max   float64
-	sum   float64
+	min   int
+	max   int
+	sum   int
 	count int
 }
 
@@ -275,9 +269,9 @@ func (ra *ResultAggregator) CalculateMetricsForCity(city string) (Metrics, error
 		return metrics, fmt.Errorf("city not found: %s", city)
 	}
 
-	metrics.max = aggregatedData.max
-	metrics.min = aggregatedData.min
-	metrics.avg = aggregatedData.sum / float64(aggregatedData.count)
+	metrics.max = float64(aggregatedData.max) / 10.0
+	metrics.min = float64(aggregatedData.min) / 10.0
+	metrics.avg = float64(aggregatedData.sum) / float64(aggregatedData.count*10)
 
 	return metrics, nil
 }
