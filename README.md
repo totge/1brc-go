@@ -60,3 +60,19 @@ Surprisingly to somne extent the only allocating one buffer per go routine did n
 
 #### Conclusions
 Based on the profile file, the most significant bottleneck are the map operations, so the next iteration should target optimizing that part.
+
+### 6. Store pointers in maps instead of structs
+#### Description 
+In the previous iteration the map operations were the biggest bottleneck, so this iteration targets them directly. Until now the aggregator maps stored the `AggregatedMeasurements` struct by value, which meant every record on the hot `AddRecord` path had to read the struct out of the map, modify a copy, and write the whole struct back — a second hash-and-store on every one of the billion rows.
+
+This iteration changes both `MeasurementAggregator.cityMeasurements` and `ResultAggregator.allResults` to `map[string]*AggregatedMeasurements`. Now a city that already exists is updated in place through its pointer, with no write-back; only the first time a city is seen does it allocate and store a pointer. The merge step in `AddPartialResults` works the same way, accumulating into the existing struct through its pointer.
+
+#### Results
+➜ [iter_05_p50    ] Time: 7.04232575s  | Mem:  505.31 MB | Profiled: true
+
+Significant jump in performance.
+
+#### Conclusions
+Both time and memory improved sharply: execution dropped from ~11s to ~7s, and allocated memory fell roughly 20x (from ~10 GB to ~505 MB). Removing the per-record write-back not only cut map-store work on the hot path but also drastically reduced the amount of struct copying, which shows up in the much lower memory figure.
+
+The next iteration should target float parsing which became the new bottleneck.
