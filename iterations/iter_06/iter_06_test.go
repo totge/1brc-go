@@ -294,6 +294,66 @@ func TestParseRecord(t *testing.T) {
 	}
 }
 
+func TestParseTemperature(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   []byte
+		want    float64
+		wantErr bool
+	}{
+		{
+			name:    "4 digit positive",
+			input:   []byte("12.3"),
+			want:    12.3,
+			wantErr: false,
+		},
+		{
+			name:    "4 digit negative",
+			input:   []byte("-54.5"),
+			want:    -54.5,
+			wantErr: false,
+		},
+		{
+			name:    "3 digit positive",
+			input:   []byte("7.9"),
+			want:    7.9,
+			wantErr: false,
+		},
+		{
+			name:    "3 digit negative",
+			input:   []byte("-3.4"),
+			want:    -3.4,
+			wantErr: false,
+		},
+		{
+			name:    "invalid length",
+			input:   []byte("-100.5"),
+			wantErr: true,
+		},
+		{
+			name:    "empty temperature",
+			input:   []byte(""),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseTemperature(tt.input)
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseTemperature() error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if !tt.wantErr {
+				if got != tt.want {
+					t.Errorf("got %f, want %f", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 // TestRecordGenerator_ParseRecord_PreservesDecimals guards the real pipeline:
 // records leave RecordGenerator without a trailing separator, and ParseRecord
 // must parse the temperature in full. A regression here silently truncated the
