@@ -242,19 +242,19 @@ func TestParseRecord(t *testing.T) {
 		{
 			name:    "valid record",
 			input:   []byte("Hamburg;12.3"),
-			want:    Record{station: []byte("Hamburg"), temp: 12.3},
+			want:    Record{station: []byte("Hamburg"), temp: 123},
 			wantErr: false,
 		},
 		{
 			name:    "negative temperature",
 			input:   []byte("Oslo;-5.5"),
-			want:    Record{station: []byte("Oslo"), temp: -5.5},
+			want:    Record{station: []byte("Oslo"), temp: -55},
 			wantErr: false,
 		},
 		{
 			name:    "single fractional digit is preserved",
 			input:   []byte("Rome;9.9"),
-			want:    Record{station: []byte("Rome"), temp: 9.9},
+			want:    Record{station: []byte("Rome"), temp: 99},
 			wantErr: false,
 		},
 		{
@@ -298,31 +298,31 @@ func TestParseTemperature(t *testing.T) {
 	tests := []struct {
 		name    string
 		input   []byte
-		want    float64
+		want    int
 		wantErr bool
 	}{
 		{
 			name:    "4 digit positive",
 			input:   []byte("12.3"),
-			want:    12.3,
+			want:    123,
 			wantErr: false,
 		},
 		{
 			name:    "4 digit negative",
 			input:   []byte("-54.5"),
-			want:    -54.5,
+			want:    -545,
 			wantErr: false,
 		},
 		{
 			name:    "3 digit positive",
 			input:   []byte("7.9"),
-			want:    7.9,
+			want:    79,
 			wantErr: false,
 		},
 		{
 			name:    "3 digit negative",
 			input:   []byte("-3.4"),
-			want:    -3.4,
+			want:    -34,
 			wantErr: false,
 		},
 		{
@@ -347,47 +347,12 @@ func TestParseTemperature(t *testing.T) {
 
 			if !tt.wantErr {
 				if got != tt.want {
-					t.Errorf("got %f, want %f", got, tt.want)
+					t.Errorf("got %d, want %d", got, tt.want)
 				}
 			}
 		})
 	}
 }
-
-// TestRecordGenerator_ParseRecord_PreservesDecimals guards the real pipeline:
-// records leave RecordGenerator without a trailing separator, and ParseRecord
-// must parse the temperature in full. A regression here silently truncated the
-// last fractional digit (e.g. 12.3 -> 12.0).
-// func TestRecordGenerator_ParseRecord_PreservesDecimals(t *testing.T) {
-// 	chunk := []byte("Hamburg;12.3\nOslo;-5.5\nRome;9.9\n")
-
-// 	want := []Record{
-// 		{station: []byte("Hamburg"), temp: 12.3},
-// 		{station: []byte("Oslo"), temp: -5.5},
-// 		{station: []byte("Rome"), temp: 9.9},
-// 	}
-
-// 	rg := NewRecordGenerator(chunk, '\n')
-
-// 	for i := 0; rg.HasNext(); i++ {
-// 		rawRec, err := rg.ReadNextRecord()
-// 		if err != nil {
-// 			t.Fatalf("unexpected error reading record %d: %v", i, err)
-// 		}
-
-// 		got, err := ParseRecord(rawRec)
-// 		if err != nil {
-// 			t.Fatalf("unexpected error parsing record %q: %v", rawRec, err)
-// 		}
-
-// 		if !bytes.Equal(got.station, want[i].station) {
-// 			t.Errorf("record %d: got station %q, want %q", i, got.station, want[i].station)
-// 		}
-// 		if got.temp != want[i].temp {
-// 			t.Errorf("record %d: got temp %v, want %v (decimal part lost?)", i, got.temp, want[i].temp)
-// 		}
-// 	}
-// }
 
 func TestNewAggregator(t *testing.T) {
 	a := NewMeasurementAggregator()
@@ -399,9 +364,9 @@ func TestNewAggregator(t *testing.T) {
 
 func TestAggregator_AddRecord(t *testing.T) {
 	a := NewMeasurementAggregator()
-	a.AddRecord(Record{station: []byte("Hamburg"), temp: 12.3})
-	a.AddRecord(Record{station: []byte("Hamburg"), temp: 5.0})
-	a.AddRecord(Record{station: []byte("Oslo"), temp: -3.0})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 123})
+	a.AddRecord(Record{station: []byte("Hamburg"), temp: 50})
+	a.AddRecord(Record{station: []byte("Oslo"), temp: -30})
 
 	keysCount := 0
 	for range a.cityMeasurements {
@@ -450,16 +415,16 @@ func TestAggregator_ListCities(t *testing.T) {
 
 func TestReasultAggregator_CalculateMetricsForCity(t *testing.T) {
 	a1 := NewMeasurementAggregator()
-	a1.AddRecord(Record{station: []byte("Hamburg"), temp: 10.1})
-	a1.AddRecord(Record{station: []byte("Hamburg"), temp: -2.4})
-	a1.AddRecord(Record{station: []byte("Hamburg"), temp: 6.6})
+	a1.AddRecord(Record{station: []byte("Hamburg"), temp: 101})
+	a1.AddRecord(Record{station: []byte("Hamburg"), temp: -24})
+	a1.AddRecord(Record{station: []byte("Hamburg"), temp: 66})
 	// count=3, sum=14.3, min=-2.4, max=10.1
 
 	a2 := NewMeasurementAggregator()
-	a2.AddRecord(Record{station: []byte("Hamburg"), temp: -3.0})
-	a2.AddRecord(Record{station: []byte("Hamburg"), temp: 7.2})
+	a2.AddRecord(Record{station: []byte("Hamburg"), temp: -30})
+	a2.AddRecord(Record{station: []byte("Hamburg"), temp: 72})
 	// count=2, sum=4.2, min=-3.0, max=7.2
-	a2.AddRecord(Record{station: []byte("Oslo"), temp: 7.2})
+	a2.AddRecord(Record{station: []byte("Oslo"), temp: 72})
 
 	resAgg := NewResultAggregator()
 
