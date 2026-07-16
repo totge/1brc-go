@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -142,13 +141,50 @@ func ParseRecord(rawRecord []byte) (Record, error) {
 
 	record.station = rawRecord[:separatorIdx]
 
-	temp, err := strconv.ParseFloat(string(rawRecord[separatorIdx+1:]), 64)
+	temp, err := parseTemperature(rawRecord[separatorIdx+1:])
 	if err != nil {
 		return record, fmt.Errorf("failed to convert temperature to float: %s in record: %s", rawRecord[separatorIdx+1:], rawRecord)
 	}
 	record.temp = temp
 
 	return record, nil
+}
+
+// temperature can be positive (no sign) or negative (-)
+// temperature -100 < t < 100
+// 1 decimal precision, there is always one and only one decimal place number
+// decimal are separated by . from the integer part
+func parseTemperature(temp []byte) (float64, error) {
+	// shortest eg 1.1 longest eg -23.5
+	if len(temp) < 3 || len(temp) > 5 {
+		return 0.0, fmt.Errorf("unexpected length (%d) for temperature data: %s", len(temp), temp)
+	}
+
+	sign := 1.0
+	result := 0.0
+
+	// handle negaitive sign
+	if temp[0] == '-' {
+		sign = -1.0
+		temp = temp[1:]
+	}
+
+	// int part
+	intPart := 0
+	if len(temp) == 4 {
+		intPart += 10*(int(temp[0]-'0')) + int(temp[1]-'0')
+	} else if len(temp) == 3 {
+		intPart += int(temp[0] - '0')
+	} else {
+		return 0.0, fmt.Errorf("unexpected length (%d) for temperature data: %s", len(temp), temp)
+	}
+
+	result += float64(intPart)
+
+	// decimal part
+	result += (float64(temp[len(temp)-1]-'0') / 10.0)
+
+	return sign * result, nil
 }
 
 type Metrics struct {
