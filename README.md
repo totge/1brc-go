@@ -90,3 +90,17 @@ Significant jump in performance — execution dropped from ~7s to ~4.9s (~30%), 
 
 #### Conclusions
 Specialising the parser to the known input shape lowered its compute needs and improved the performance. Based on the cpu profile map operations (hashing, byte-slice-to-string key conversion, mapaccess) take up the biggest portion (~44%) of the runtime again, but record parsing (with temperature parsing and byte indexing) and record reading (byte indexing) are also significant (with ~27% and ~21%). Next iteration will target to switching `float64` to `int` in the parsing and aggregation steps.
+
+### 8. Use `int` instead of `float64`
+#### Description 
+The previous iteration introduced a specialized float parser that was much faster than the general `strconv.ParseFloat`, but it still produced and aggregated `float64` values. Since every temperature has exactly one decimal digit, the value can be held exactly as an integer number of tenths. This iteration keeps everything as `int` from parsing through aggregation, only converting back to `float64` at the very end when the final metrics are computed.
+
+`parseTemperature` now returns the scaled integer directly (`12.3` → `123`, `-3.4` → `-34`), dropping the per-record float division. `Record.temp` and the `min`/`max`/`sum` fields of `AggregatedMeasurements` become `int`, so `AddRecord` and the merge step do integer arithmetic. `CalculateMetricsForCity` scales back down once per city — `min`/`max` divided by 10 and the average as `sum / (count*10)` — which is the only place floating point remains.
+
+#### Results
+➜ [iter_07_p50    ] Time: 4.7506315s   | Mem:  505.21 MB | Profiled: true
+
+Small improvement of 1-2 tenths of a second, with memory unchanged at ~505 MB.
+
+#### Conclusions
+Float parsing was already cheap after iteration 7, so moving to integers trimmed only the remaining per-record float work rather than a dominant cost — hence the modest gain. Based on the CPU profile the map operations (hashing, mapaccess) remain the largest share of the runtime, but before addressing that, the goal in the next iteration will be to optimize the byte indexing during the record parsing and the record generation.
