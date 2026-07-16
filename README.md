@@ -76,3 +76,17 @@ Significant jump in performance.
 Both time and memory improved sharply: execution dropped from ~11s to ~7s, and allocated memory fell roughly 20x (from ~10 GB to ~505 MB). Removing the per-record write-back not only cut map-store work on the hot path but also drastically reduced the amount of struct copying, which shows up in the much lower memory figure.
 
 The next iteration should target float parsing which became the new bottleneck.
+
+### 7. Custom temperature parser for `[]byte` to `float64`
+#### Description 
+In the previous iteration float parsing became the biggest bottleneck, so this iteration targets it. Until now temperatures were parsed with `strconv.ParseFloat`, a general-purpose parser that handles arbitrary lengths, exponents, `NaN`/`Inf` and every valid float representation — and takes a `string`, forcing a `[]byte`→`string` conversion on every one of the billion rows.
+
+This iteration replaces it with a custom `parseTemperature([]byte)` that assumes the fixed shape the 1BRC data actually has: a value in `-99.9 < t < 99.9`, always exactly one decimal digit, a single `.` separator and an optional leading `-`, so the input is only ever 3–5 bytes. It reads the digits directly from the ASCII bytes (`int(b - '0')`) and works straight off the record's byte slice, removing both the general float machinery and the per-record string allocation. The now-unused `strconv` import is dropped.
+
+#### Results
+➜ [iter_06_p50    ] Time: 4.872334708s | Mem:  505.21 MB | Profiled: true
+
+Significant jump in performance — execution dropped from ~7s to ~4.9s (~30%), while memory stayed flat at ~505 MB.
+
+#### Conclusions
+Specialising the parser to the known input shape lowered its compute needs and improved the performance. Based on the cpu profile map operations (hashing, byte-slice-to-string key conversion, mapaccess) take up the biggest portion (~44%) of the runtime again, but record parsing (with temperature parsing and byte indexing) and record reading (byte indexing) are also significant (with ~27% and ~21%). Next iteration will target to switching `float64` to `int` in the parsing and aggregation steps.
